@@ -1,4 +1,5 @@
 import tkinter as tk
+import os
 from tkinter import ttk, messagebox
 from tkinter import filedialog
 
@@ -112,9 +113,103 @@ class HomeFrame(tk.Frame):
             self.validation_btn.config(state='normal')
     
     def import_bases(self):
-        # Implementar lógica de importação
-        messagebox.showinfo("Importação", "Bases importadas com sucesso!")
-        self.status_label.config(text="Bases prontas para validação", fg='#27ae60')
+        matrix_folder = self.matrix_path.get()
+        
+        if not matrix_folder:
+            messagebox.showerror("Erro", "Selecione a pasta com os arquivos XML primeiro")
+            return
+        
+        # Mapeamento dos arquivos XML e seus respectivos parsers
+        xml_files = {
+            'caixasopticas.xml': {
+                'parser': self.controller.db.parse_caixas_opticas,
+                'importer': self.controller.db.insert_caixas_opticas
+            },
+            'complementos.xml': {
+                'parser': self.controller.db.parse_complementos,
+                'importer': self.controller.db.insert_complementos
+            },
+            'empresas.xml': {
+                'parser': self.controller.db.parse_empresas,
+                'importer': self.controller.db.insert_empresas
+            },
+            'operadores.xml': {
+                'parser': self.controller.db.parse_operadores,
+                'importer': self.controller.db.insert_operadores
+            },
+            'roteiro.xml': {
+                'parser': self.controller.db.parse_roteiros,
+                'importer': self.controller.db.insert_roteiros
+            },
+            'tipos_imovel.xml': {
+                'parser': self.controller.db.parse_tipos_imovel,
+                'importer': self.controller.db.insert_tipos_imovel
+            },
+            'zonas.xml': {
+                'parser': self.controller.db.parse_zonas,
+                'importer': self.controller.db.insert_zonas
+            }
+        }
+        
+        imported_files = []
+        error_occurred = False
+        error_message = ""
+        
+        try:
+            # Verificar se todos os arquivos necessários existem
+            missing_files = []
+            for xml_file in xml_files.keys():
+                if not os.path.exists(os.path.join(matrix_folder, xml_file)):
+                    missing_files.append(xml_file)
+            
+            if missing_files:
+                messagebox.showerror(
+                    "Arquivos faltando", 
+                    f"Os seguintes arquivos não foram encontrados na pasta:\n{', '.join(missing_files)}"
+                )
+                return
+            
+            # Iniciar transação
+            self.controller.db.conn.execute("BEGIN TRANSACTION")
+            
+            # Processar cada arquivo XML
+            for xml_file, handlers in xml_files.items():
+                file_path = os.path.join(matrix_folder, xml_file)
+                
+                try:
+                    # Parsear o XML
+                    data = handlers['parser'](file_path)
+                    
+                    # Importar para o banco de dados
+                    handlers['importer'](data)
+                    
+                    imported_files.append(xml_file)
+                    
+                except Exception as e:
+                    error_occurred = True
+                    error_message = f"Erro ao processar {xml_file}:\n{str(e)}"
+                    break
+            
+            if error_occurred:
+                # Rollback em caso de erro
+                self.controller.db.conn.rollback()
+                messagebox.showerror("Erro na Importação", error_message)
+                self.status_label.config(text="Erro na importação", fg='#e74c3c')
+            else:
+                # Commit se tudo ocorrer bem
+                self.controller.db.conn.commit()
+                messagebox.showinfo(
+                    "Importação concluída", 
+                    f"Todos os arquivos foram importados com sucesso!\n\n"
+                    f"Arquivos processados:\n{', '.join(imported_files)}"
+                )
+                self.status_label.config(text="Bases prontas para validação", fg='#27ae60')
+                self.validation_btn.config(state='normal')
+    
+        except Exception as e:
+            self.controller.db.conn.rollback()
+            messagebox.showerror("Erro Fatal", f"Ocorreu um erro inesperado:\n{str(e)}")
+            self.status_label.config(text="Erro na importação", fg='#e74c3c')
     
     def validate_addresses(self):
         self.controller.show_frame(self.controller.VALIDATION_FRAME)

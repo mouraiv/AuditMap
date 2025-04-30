@@ -33,10 +33,10 @@ class CorrectionFrame(tk.Frame):
         summary_frame.pack(side='left', fill='x', expand=True)
         
         self.total_div_label = tk.Label(
-            summary_frame, text="Total de divergências: 110", 
+            summary_frame, text="Total de divergências: 110 /", 
             font=('Helvetica', 10), bg='#f0f0f0'
         )
-        self.total_div_label.pack(anchor='w')
+        self.total_div_label.pack(side='left')
         
         self.total_ok_label = tk.Label(
             summary_frame, text="Endereços OK: 40", 
@@ -70,7 +70,7 @@ class CorrectionFrame(tk.Frame):
                 font=('Helvetica', 10, 'underline'), 
                 fg='red', bg='#f0f0f0', cursor='hand2'
             )
-            btn.pack(anchor='w', pady=2)
+            btn.pack(side='left')
             btn.bind('<Button-1>', lambda e, t=text: self.load_divergence_type(t.split(' ')[0]))
         
         # Formulário de correção

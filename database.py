@@ -195,8 +195,32 @@ class Database:
             return False, f"Erro na importação: {str(e)}"
     
     def _import_caixas_opticas(self, data):
-        # Implementação específica para caixas ópticas
-        pass
+        self.cursor.execute("DELETE FROM caixas_opticas")  # Limpar tabela antes de importar
+        self.insert_caixas_opticas(data)
+
+    def _import_complementos(self, data):
+        self.cursor.execute("DELETE FROM complementos")  # Limpar tabela antes de importar
+        self.insert_complementos(data)
+
+    def _import_empresas(self, data):
+        self.cursor.execute("DELETE FROM empresas")  # Limpar tabela antes de importar
+        self.insert_empresas(data)
+
+    def _import_operadores(self, data):
+        self.cursor.execute("DELETE FROM operadores")  # Limpar tabela antes de importar
+        self.insert_operadores(data)
+
+    def _import_roteiros(self, data):
+        self.cursor.execute("DELETE FROM roteiros")  # Limpar tabela antes de importar
+        self.insert_roteiros(data)
+
+    def _import_tipos_imovel(self, data):
+        self.cursor.execute("DELETE FROM tipos_imovel")  # Limpar tabela antes de importar
+        self.insert_tipos_imovel(data)
+
+    def _import_zonas(self, data):
+        self.cursor.execute("DELETE FROM zonas")  # Limpar tabela antes de importar
+        self.insert_zonas(data)
     
     # Implementar outros métodos _import_* para cada tipo de dados
     
