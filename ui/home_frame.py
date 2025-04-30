@@ -117,7 +117,7 @@ class HomeFrame(tk.Frame):
         self.status_label.config(text="Bases prontas para validação", fg='#27ae60')
     
     def validate_addresses(self):
-        self.controller.show_frame(self.controller.frames['ValidationFrame'])
+        self.controller.show_frame(self.controller.VALIDATION_FRAME)
     
     def update_data(self):
         # Atualizar status quando a tela é mostrada

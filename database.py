@@ -1,7 +1,7 @@
 import sqlite3
 import os
 from datetime import datetime
-
+from typing import List, Dict, Optional
 class Database:
     def __init__(self, db_name="auditmap.db"):
         self.conn = sqlite3.connect(db_name)
