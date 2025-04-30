@@ -1,7 +1,9 @@
 import tkinter as tk
 import os
+import pandas as pd
 from tkinter import ttk, messagebox
 from tkinter import filedialog
+from xml_parser import XMLParser
 
 class HomeFrame(tk.Frame):
     def __init__(self, parent, controller):
@@ -111,42 +113,101 @@ class HomeFrame(tk.Frame):
     def check_import_ready(self):
         if self.matrix_path.get() and self.campo_path.get():
             self.validation_btn.config(state='normal')
-    
+
+    def read_excel_data(self, file_path):
+        """Lê o arquivo Excel com tratamento robusto de tipos"""
+        try:
+            import pandas as pd
+            
+            # Ler o arquivo Excel
+            df = pd.read_excel(file_path)
+
+            # Renomear coluna para nome consistente (se existir)
+            if 'Weblink: EndereÃ§o completo' in df.columns:
+                df.rename(columns={'Weblink: EndereÃ§o completo': 'Weblink: Endereço completo'}, inplace=True)
+            
+            # Verificar se a coluna de endereço existe
+            endereco_col = 'Weblink: Endereço completo'
+            if endereco_col not in df.columns:
+                print(f"\nColunas disponíveis no arquivo: {df.columns.tolist()}")
+                raise ValueError(f"Coluna de endereço ('{endereco_col}') não encontrada")
+
+            # Processar o endereço com tratamento robusto
+            def processar_endereco(endereco):
+                try:
+                    if pd.isna(endereco):
+                        return {'endereco': None, 'bairro': None, 'cep': None, 'pais': None}
+                    
+                    # Converter para string (caso seja número ou outro tipo)
+                    endereco_str = str(endereco).strip()
+                    if not endereco_str:
+                        return {'endereco': None, 'bairro': None, 'cep': None, 'pais': None}
+                    
+                    partes = [p.strip() for p in endereco_str.split(',') if p.strip()]
+                    
+                    return {
+                        'endereco': partes[0] if len(partes) > 0 else None,
+                        'bairro': partes[1] if len(partes) > 1 else None,
+                        'cep': partes[2].replace('-', '') if len(partes) > 2 else None,
+                        'pais': partes[3] if len(partes) > 3 else None
+                    }
+                except Exception as e:
+                    print(f"Erro ao processar endereço '{endereco}': {str(e)}")
+                    return {'endereco': str(endereco), 'bairro': None, 'cep': None, 'pais': None}
+            
+            # Aplicar processamento
+            enderecos_processados = df[endereco_col].apply(processar_endereco)
+            
+            # Adicionar novos campos
+            df = df.join(pd.json_normalize(enderecos_processados))
+            
+            # Converter para lista de dicionários
+            data = df.to_dict('records')
+            
+            print("\nExemplo de registro processado:")
+            print(data[0] if data else "Nenhum dado encontrado")
+            
+            return data
+        
+        except Exception as e:
+            raise Exception(f"Erro ao ler Excel: {str(e)}")
+        
     def import_bases(self):
         matrix_folder = self.matrix_path.get()
+        campo_file = self.campo_path.get()
         
-        if not matrix_folder:
-            messagebox.showerror("Erro", "Selecione a pasta com os arquivos XML primeiro")
+        if not matrix_folder or not campo_file:
+            messagebox.showerror("Erro", "Selecione tanto a pasta com os arquivos XML quanto o arquivo Excel de campo")
             return
         
-        # Mapeamento dos arquivos XML e seus respectivos parsers
+        # Mapeamento dos arquivos XML e seus respectivos parsers (usando métodos estáticos)
         xml_files = {
             'caixasopticas.xml': {
-                'parser': self.controller.db.parse_caixas_opticas,
+                'parser': XMLParser.parse_caixas_opticas,  # Método estático
                 'importer': self.controller.db.insert_caixas_opticas
             },
             'complementos.xml': {
-                'parser': self.controller.db.parse_complementos,
+                'parser': XMLParser.parse_complementos,
                 'importer': self.controller.db.insert_complementos
             },
             'empresas.xml': {
-                'parser': self.controller.db.parse_empresas,
+                'parser': XMLParser.parse_empresas,
                 'importer': self.controller.db.insert_empresas
             },
             'operadores.xml': {
-                'parser': self.controller.db.parse_operadores,
+                'parser': XMLParser.parse_operadores,
                 'importer': self.controller.db.insert_operadores
             },
             'roteiro.xml': {
-                'parser': self.controller.db.parse_roteiros,
+                'parser': XMLParser.parse_roteiros,
                 'importer': self.controller.db.insert_roteiros
             },
             'tipos_imovel.xml': {
-                'parser': self.controller.db.parse_tipos_imovel,
+                'parser': XMLParser.parse_tipos_imovel,
                 'importer': self.controller.db.insert_tipos_imovel
             },
             'zonas.xml': {
-                'parser': self.controller.db.parse_zonas,
+                'parser': XMLParser.parse_zonas,
                 'importer': self.controller.db.insert_zonas
             }
         }
@@ -156,7 +217,7 @@ class HomeFrame(tk.Frame):
         error_message = ""
         
         try:
-            # Verificar se todos os arquivos necessários existem
+            # Verificar se todos os arquivos XML necessários existem
             missing_files = []
             for xml_file in xml_files.keys():
                 if not os.path.exists(os.path.join(matrix_folder, xml_file)):
@@ -172,12 +233,12 @@ class HomeFrame(tk.Frame):
             # Iniciar transação
             self.controller.db.conn.execute("BEGIN TRANSACTION")
             
-            # Processar cada arquivo XML
+            # 1. Processar cada arquivo XML
             for xml_file, handlers in xml_files.items():
                 file_path = os.path.join(matrix_folder, xml_file)
                 
                 try:
-                    # Parsear o XML
+                    # Chamar o método estático diretamente na classe
                     data = handlers['parser'](file_path)
                     
                     # Importar para o banco de dados
@@ -190,6 +251,25 @@ class HomeFrame(tk.Frame):
                     error_message = f"Erro ao processar {xml_file}:\n{str(e)}"
                     break
             
+            # 2. Se os XMLs foram importados com sucesso, processar o Excel de campo
+            if not error_occurred:
+                try:
+                    # Ler dados do Excel
+                    excel_data = self.read_excel_data(campo_file)
+                    
+                    # Importar dados de campo
+                    success, message = self.controller.db.import_excel_data(campo_file, excel_data)
+                    
+                    if not success:
+                        error_occurred = True
+                        error_message = f"Erro ao importar Excel de campo:\n{message}"
+                    else:
+                        imported_files.append(os.path.basename(campo_file))
+                
+                except Exception as e:
+                    error_occurred = True
+                    error_message = f"Erro ao processar arquivo Excel:\n{str(e)}"
+            
             if error_occurred:
                 # Rollback em caso de erro
                 self.controller.db.conn.rollback()
@@ -200,12 +280,12 @@ class HomeFrame(tk.Frame):
                 self.controller.db.conn.commit()
                 messagebox.showinfo(
                     "Importação concluída", 
-                    f"Todos os arquivos foram importados com sucesso!\n\n"
+                    f"Todas as bases foram importadas com sucesso!\n\n"
                     f"Arquivos processados:\n{', '.join(imported_files)}"
                 )
                 self.status_label.config(text="Bases prontas para validação", fg='#27ae60')
                 self.validation_btn.config(state='normal')
-    
+        
         except Exception as e:
             self.controller.db.conn.rollback()
             messagebox.showerror("Erro Fatal", f"Ocorreu um erro inesperado:\n{str(e)}")

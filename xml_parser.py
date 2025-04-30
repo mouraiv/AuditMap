@@ -99,33 +99,43 @@ class XMLParser:
 
     @staticmethod
     def parse_roteiros(file_path: str) -> List[Dict]:
-        """Parse roteiro.xml file"""
+        """Parse roteiro.xml file com tratamento de campos nulos"""
         tree = ET.parse(file_path)
         root = tree.getroot()
         
         roteiros = []
         for roteiro in root.findall('roteiro'):
+            # Função auxiliar para tratar conversão de inteiros
+            def get_int(element, tag):
+                elem = element.find(tag)
+                return int(elem.text) if elem is not None and elem.text and elem.text.strip() else None
+            
+            # Função auxiliar para tratar textos
+            def get_text(element, tag):
+                elem = element.find(tag)
+                return elem.text if elem is not None else None
+            
             rot = {
-                'id_roteiro': int(roteiro.find('id').text),
-                'uf': roteiro.find('uf').text,
-                'uf_abrev': roteiro.find('uf_abrev').text,
-                'cod_municipio': int(roteiro.find('cod_municipio').text),
-                'municipio': roteiro.find('municipio').text,
-                'id_localidade': int(roteiro.find('id_localidade').text),
-                'cod_localidade': int(roteiro.find('cod_localidade').text),
-                'localidade': roteiro.find('localidade').text,
-                'localidade_abrev': roteiro.find('localidade_abrev').text,
-                'cod_bairro': int(roteiro.find('cod_bairro').text),
-                'bairro': roteiro.find('bairro').text,
-                'cod_lograd': int(roteiro.find('cod_lograd').text),
-                'nome_lograd': roteiro.find('nome_lograd').text,
-                'id_tipo_lograd': int(roteiro.find('id_tipo_lograd').text),
-                'tipo_lograd': roteiro.find('tipo_lograd').text,
-                'tipo_lograd_abrev': roteiro.find('tipo_lograd_abrev').text,
-                'id_titulo': int(roteiro.find('id_titulo').text) if roteiro.find('id_titulo') is not None and roteiro.find('id_titulo').text else None,
-                'titulo': roteiro.find('titulo').text if roteiro.find('titulo') is not None else None,
-                'titulo_abrev': roteiro.find('titulo_abrev').text if roteiro.find('titulo_abrev') is not None else None,
-                'cep': roteiro.find('cep').text
+                'id_roteiro': get_int(roteiro, 'id'),
+                'uf': get_text(roteiro, 'uf'),
+                'uf_abrev': get_text(roteiro, 'uf_abrev'),
+                'cod_municipio': get_int(roteiro, 'cod_municipio'),
+                'municipio': get_text(roteiro, 'municipio'),
+                'id_localidade': get_int(roteiro, 'id_localidade'),
+                'cod_localidade': get_int(roteiro, 'cod_localidade'),
+                'localidade': get_text(roteiro, 'localidade'),
+                'localidade_abrev': get_text(roteiro, 'localidade_abrev'),
+                'cod_bairro': get_int(roteiro, 'cod_bairro'),
+                'bairro': get_text(roteiro, 'bairro'),
+                'cod_lograd': get_int(roteiro, 'cod_lograd'),
+                'nome_lograd': get_text(roteiro, 'nome_lograd'),
+                'id_tipo_lograd': get_int(roteiro, 'id_tipo_lograd'),
+                'tipo_lograd': get_text(roteiro, 'tipo_lograd'),
+                'tipo_lograd_abrev': get_text(roteiro, 'tipo_lograd_abrev'),
+                'id_titulo': get_int(roteiro, 'id_titulo'),
+                'titulo': get_text(roteiro, 'titulo'),
+                'titulo_abrev': get_text(roteiro, 'titulo_abrev'),
+                'cep': get_text(roteiro, 'cep')
             }
             roteiros.append(rot)
         

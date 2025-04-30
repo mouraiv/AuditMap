@@ -1,5 +1,5 @@
 import sqlite3
-import os
+import pandas as pd
 from datetime import datetime
 from typing import List, Dict, Optional
 class Database:
@@ -139,6 +139,9 @@ class Database:
                 tipo_imovel TEXT,
                 pavimento TEXT,
                 endereco_completo TEXT,
+                bairro TEXT,
+                cep TEXT,
+                uf TEXT,
                 complemento TEXT,
                 quantidade TEXT,
                 junto TEXT,
@@ -194,6 +197,7 @@ class Database:
             self.conn.rollback()
             return False, f"Erro na importação: {str(e)}"
     
+    # Implementar metodos para importação de dados
     def _import_caixas_opticas(self, data):
         self.cursor.execute("DELETE FROM caixas_opticas")  # Limpar tabela antes de importar
         self.insert_caixas_opticas(data)
@@ -222,41 +226,109 @@ class Database:
         self.cursor.execute("DELETE FROM zonas")  # Limpar tabela antes de importar
         self.insert_zonas(data)
     
-    # Implementar outros métodos _import_* para cada tipo de dados
+    # Implementar metodos count para informações de validação
+    def get_total_addresses(self):
+        """Retorna o total de endereços na tabela campo"""
+        self.cursor.execute("SELECT COUNT(*) FROM campo")
+        return self.cursor.fetchone()[0]
+
+    def get_valid_addresses(self):
+        """Retorna a quantidade de endereços validados"""
+        self.cursor.execute("SELECT COUNT(*) FROM campo WHERE status = 1")  # 1 = OK
+        return self.cursor.fetchone()[0]
+
+    def get_divergent_addresses(self):
+        """Retorna a quantidade de endereços com divergências"""
+        self.cursor.execute("SELECT COUNT(*) FROM campo WHERE status = 2")  # 2 = Divergente
+        return self.cursor.fetchone()[0]
+
+    def get_divergence_types(self):
+        """Retorna os tipos de divergência e suas quantidades"""
+        self.cursor.execute("""
+            SELECT 
+                CASE 
+                    WHEN divergencias LIKE '%CEP%' THEN 'CEP incorreto'
+                    WHEN divergencias LIKE '%Logradouro%' THEN 'Logradouro divergente'
+                    WHEN divergencias LIKE '%Número%' THEN 'Número faltando'
+                    ELSE 'Outras divergências'
+                END AS tipo_divergencia,
+                COUNT(*) as quantidade
+            FROM campo
+            WHERE status = 2
+            GROUP BY tipo_divergencia
+            ORDER BY quantidade DESC
+        """)
+        return self.cursor.fetchall()
     
     def import_excel_data(self, file_path, data):
         try:
-            # Limpar tabela antes de importar novos dados
+            # Limpar tabela antes de importar
             self.cursor.execute("DELETE FROM campo")
             
-            # Inserir novos dados
             for row in data:
+                # Garantir que os campos de endereço existam
+                endereco_completo = str(row.get('endereco', '')) if pd.notna(row.get('endereco')) else None
+                bairro = str(row.get('bairro', '')) if pd.notna(row.get('bairro')) else None
+                cep = str(row.get('cep', '')) if pd.notna(row.get('cep')) else None
+                pais = str(row.get('pais', '')) if pd.notna(row.get('pais')) else None
+                
+                # Converter campos numéricos
+                try:
+                    latitude = float(row['Latitude']) if pd.notna(row.get('Latitude')) else None
+                except:
+                    latitude = None
+                    print(f"Valor inválido para Latitude: {row.get('Latitude')}")
+                
+                try:
+                    longitude = float(row['Longitude']) if pd.notna(row.get('Longitude')) else None
+                except:
+                    longitude = None
+                    print(f"Valor inválido para Longitude: {row.get('Longitude')}")
+                
+                # Inserir dados
                 self.cursor.execute('''
                     INSERT INTO campo (
                         folder_name, folder_color, latitude, longitude, numero_fachada,
                         description, color, phone_number, timestamp, pin_icon_code,
-                        tipo_imovel, pavimento, endereco_completo, complemento,
-                        quantidade, junto, data, inicio, termino, hps, postes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        tipo_imovel, pavimento, endereco_completo, bairro, cep, pais,
+                        complemento, quantidade, junto, data, inicio, termino, hps, postes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
-                    row.get('Folder name'), row.get('Folder color'), row.get('Latitude'),
-                    row.get('Longitude'), row.get('Nº Fachada'), row.get('Description'),
-                    row.get('Color'), row.get('Phone number'), row.get('Timestamp'),
-                    row.get('Pin icon code'), row.get('MultiChoiceSelection: Tipo HP/Moradia/Comercio/Apartamento'),
-                    row.get('Weblink: Pavimento'), row.get('Weblink: Endereço completo'),
-                    row.get('Weblink: Complemento'), row.get('Weblink: Quantidade'),
-                    row.get('junto?'), row.get('Data'), row.get('inicio'), row.get('termino'),
-                    row.get('hps'), row.get('Postes')
+                    str(row.get('Folder name', '')) if pd.notna(row.get('Folder name')) else None,
+                    str(row.get('Folder color', '')) if pd.notna(row.get('Folder color')) else None,
+                    latitude,
+                    longitude,
+                    str(row.get('Nº Fachada', '')) if pd.notna(row.get('Nº Fachada')) else None,
+                    str(row.get('Description', '')) if pd.notna(row.get('Description')) else None,
+                    str(row.get('Color', '')) if pd.notna(row.get('Color')) else None,
+                    str(row.get('Phone number', '')) if pd.notna(row.get('Phone number')) else None,
+                    str(row.get('Timestamp', '')) if pd.notna(row.get('Timestamp')) else None,
+                    str(row.get('Pin icon code', '')) if pd.notna(row.get('Pin icon code')) else None,
+                    str(row.get('MultiChoiceSelection: Tipo HP/Moradia/Comercio/Apartamento', '')) if pd.notna(row.get('MultiChoiceSelection: Tipo HP/Moradia/Comercio/Apartamento')) else None,
+                    str(row.get('Weblink: Pavimento', '')) if pd.notna(row.get('Weblink: Pavimento')) else None,
+                    endereco_completo,
+                    bairro,
+                    cep,
+                    pais,
+                    str(row.get('Weblink: Complemento', '')) if pd.notna(row.get('Weblink: Complemento')) else None,
+                    str(row.get('Weblink: Quantidade', '')) if pd.notna(row.get('Weblink: Quantidade')) else None,
+                    str(row.get('junto?', '')) if pd.notna(row.get('junto?')) else None,
+                    str(row.get('Data', '')) if pd.notna(row.get('Data')) else None,
+                    str(row.get('inicio', '')) if pd.notna(row.get('inicio')) else None,
+                    str(row.get('termino', '')) if pd.notna(row.get('termino')) else None,
+                    str(row.get('hps', '')) if pd.notna(row.get('hps')) else None,
+                    str(row.get('Postes', '')) if pd.notna(row.get('Postes')) else None
                 ))
             
-            # Registrar a importação
+            # Registrar importação
             self.cursor.execute('''
                 INSERT INTO import_logs (file_type, file_path, import_date, records_imported)
                 VALUES (?, ?, ?, ?)
             ''', ('campo', file_path, datetime.now().isoformat(), len(data)))
             
             self.conn.commit()
-            return True, f"Importação de {len(data)} registros de campo concluída com sucesso."
+            return True, f"Importados {len(data)} registros com sucesso"
+        
         except Exception as e:
             self.conn.rollback()
             return False, f"Erro na importação: {str(e)}"
