@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
+from validator import AddressValidator
 
 class ValidationFrame(tk.Frame):
     def __init__(self, parent, controller):
@@ -83,32 +84,27 @@ class ValidationFrame(tk.Frame):
     def correct_divergences(self):
         self.controller.show_frame('CorrectionFrame')
     
-    # Em ValidationFrame
     def update_data(self):
         """Busca dados reais do banco e atualiza a interface"""
         try:
-            db = self.controller.db
-            
-            # Busca estatísticas
-            total = db.get_total_addresses()
-            valid = db.get_valid_addresses()
-            divergent = db.get_divergent_addresses()
-            divergence_types = db.get_divergence_types()
+            validator = AddressValidator(self.controller.db)
+            stats = validator.validate_all_surveys()
             
             # Atualiza os labels
-            self.total_label.config(text=f"Total de endereços: {total}")
-            self.ok_label.config(text=f"Endereços OK: {valid}")
-            self.div_label.config(text=f"Endereços com divergência: {divergent}")
+            self.total_label.config(text=f"Total de surveys: {stats['total']}")
+            self.ok_label.config(text=f"Surveys OK: {stats['ok']}")
+            self.div_label.config(text=f"Surveys com divergência: {stats['total'] - stats['ok']}")
             
             # Atualiza a treeview
             for item in self.tree.get_children():
                 self.tree.delete(item)
                 
-            for div_type, count in divergence_types:
-                self.tree.insert('', 'end', values=(div_type, count))
-                
+            for div_type, count in stats['divergencias'].items():
+                self.tree.insert('', 'end', values=(div_type.capitalize(), count))
+            
             # Habilita botões conforme necessário
-            self.export_btn.config(state='normal' if total > 0 else 'disabled')
+            self.export_btn.config(state='normal' if stats['total'] > 0 else 'disabled')
             
         except Exception as e:
             messagebox.showerror("Erro", f"Falha ao carregar dados: {str(e)}")
+

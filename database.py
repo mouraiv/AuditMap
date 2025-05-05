@@ -152,7 +152,67 @@ class Database:
                 records_imported INTEGER
             )
         ''')
-        
+
+        # Tabela para syrvey de campo
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS survey (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tipo_survey INTEGER NOT NULL, -- 1 = moradia (tipo="M"), 2 = edificio (tipo="E")
+                versao TEXT,
+                autorizacao TEXT,
+                gravado BOOLEAN,
+                idCEMobile INTEGER,
+                coordX TEXT,
+                coordY TEXT,
+                codigoZona TEXT,
+                nomeZona TEXT,
+                localidade TEXT,
+                logradouro TEXT,
+                numero_fachada TEXT,
+                id_complemento1 INTEGER,
+                argumento1 TEXT,
+                id_complemento3 INTEGER, -- pode ser usado também pela UC
+                cep TEXT,
+                cod_bairro INTEGER,
+                bairro TEXT,
+                id_roteiro INTEGER,
+                id_localidade INTEGER,
+                cod_lograd INTEGER,
+                tecnico_id INTEGER,
+                tecnico_nome TEXT,
+                empresa_id INTEGER,
+                empresa_nome TEXT,
+                data TEXT,
+                observacoes TEXT,
+                totalUCs INTEGER,
+                numPisos INTEGER,
+                ocupacao TEXT,
+                redeInterna TEXT,
+                fotoExteriorEdificio TEXT,
+                fotoFachadaEdificio TEXT,
+                status INTEGER NOT NULL, -- 1 = OK, 2 = Divergente, 3 = Não encontrado,
+                lograd_div INTEGER NOT NULL, -- 1 = OK, 2 = Divergente,
+                bairro_div INTEGER NOT NULL, -- 1 = OK, 2 = Divergente,
+                cep_div INTEGER NOT NULL, -- 1 = OK, 2 = Divergente,
+                baixado BOOLEAN
+            )
+        ''')
+
+        # Tabela para logs de importação
+        self.cursor.execute('''
+           CREATE TABLE IF NOT EXISTS uc (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                survey_id INTEGER NOT NULL,
+                destinacao TEXT,
+                id_complemento3 INTEGER,
+                argumento3 TEXT,
+                id_complemento4 INTEGER,
+                argumento4_logico INTEGER,
+                argumento4_real TEXT,
+                FOREIGN KEY (survey_id) REFERENCES survey(id)
+            )
+        ''')
+    
         self.conn.commit()
     
     def import_xml_data(self, file_type, file_path, data):
@@ -213,44 +273,88 @@ class Database:
         self.cursor.execute("DELETE FROM zonas")  # Limpar tabela antes de importar
         self.insert_zonas(data)
     
-    # Implementar metodos count para informações de validação
-    def get_total_addresses(self):
-        """Retorna o total de endereços na tabela campo"""
-        self.cursor.execute("SELECT COUNT(*) FROM campo")
-        return self.cursor.fetchone()[0]
-
-    def get_valid_addresses(self):
-        """Retorna a quantidade de endereços validados"""
-        self.cursor.execute("SELECT COUNT(*) FROM campo WHERE status = 1")  # 1 = OK
-        return self.cursor.fetchone()[0]
-
-    def get_divergent_addresses(self):
-        """Retorna a quantidade de endereços com divergências"""
-        self.cursor.execute("SELECT COUNT(*) FROM campo WHERE status = 2")  # 2 = Divergente
-        return self.cursor.fetchone()[0]
-
     def get_divergence_types(self):
-        """Retorna os tipos de divergência e suas quantidades"""
+        """Retorna os tipos de divergência entre tabela campo e survey com suas quantidades"""
         self.cursor.execute("""
-            SELECT 
-                CASE 
-                    WHEN divergencias LIKE '%CEP%' THEN 'CEP incorreto'
-                    WHEN divergencias LIKE '%Logradouro%' THEN 'Logradouro divergente'
-                    WHEN divergencias LIKE '%Número%' THEN 'Número faltando'
-                    ELSE 'Outras divergências'
-                END AS tipo_divergencia,
-                COUNT(*) as quantidade
-            FROM campo
-            WHERE status = 2
-            GROUP BY tipo_divergencia
-            ORDER BY quantidade DESC
+            SELECT
+                COUNT(*) AS total_registros,
+                SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS registros_ok,
+                SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS registros_divergentes,
+                SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) AS nao_encontrado,
+                SUM(CASE WHEN lograd_div = 2 THEN 1 ELSE 0 END) AS logradouro_div,
+                SUM(CASE WHEN bairro_div = 2 THEN 1 ELSE 0 END) AS bairro_div,
+                SUM(CASE WHEN cep_div = 2 THEN 1 ELSE 0 END) AS cep_div
+            FROM survey
         """)
-        return self.cursor.fetchall()
+        
+        result = self.cursor.fetchone()
+        
+        if result:
+            return {
+                'total_registros': result[0],
+                'registros_ok': result[1],
+                'registros_divergentes': result[2],
+                'nao_encontrado': result[3],
+                'logradouro_div': result[4],
+                'bairro_div': result[5],
+                'cep_div': result[6]
+            }
+        return {
+            'total_registros': 0,
+            'registros_ok': 0,
+            'registros_divergentes': 0,
+            'nao_encontrado': 0,
+            'logradouro_div': 0,
+            'bairro_div': 0,
+            'cep_div': 0
+        }
+    
+    def get_surveys_by_status(self, status: int) -> List[Dict]:
+        """Retorna surveys por status (1=OK, 2=Divergente, 3=Não encontrado)"""
+        self.cursor.execute("SELECT * FROM survey WHERE status = ?", (status,))
+        columns = [col[0] for col in self.cursor.description]
+        return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
+
+    def get_divergent_addresses(self, div_type: str) -> List[Dict]:
+        """Retorna surveys com um tipo específico de divergência"""
+        query = """
+            SELECT s.* FROM survey s
+            JOIN campo c ON s.logradouro = c.endereco_completo
+            WHERE s.status = 2 AND (
+        """
+        
+        conditions = {
+            'logradouro': "(c.endereco_completo IS NULL OR TRIM(c.endereco_completo) = '' OR s.logradouro IS NULL OR TRIM(s.logradouro) = '' OR c.endereco_completo != s.logradouro)",
+            'bairro': "(c.bairro IS NULL OR TRIM(c.bairro) = '' OR s.bairro IS NULL OR TRIM(s.bairro) = '' OR c.bairro != s.bairro)",
+            'cep': "(c.cep IS NULL OR TRIM(c.cep) = '' OR s.cep IS NULL OR TRIM(s.cep) = '' OR c.cep != s.cep)",
+            'numero': "(c.numero_fachada IS NULL OR TRIM(c.numero_fachada) = '' OR s.numero_fachada IS NULL OR TRIM(s.numero_fachada) = '' OR c.numero_fachada != s.numero_fachada)"
+        }
+        
+        if div_type not in conditions:
+            return []
+        
+        query += conditions[div_type] + ")"
+        
+        self.cursor.execute(query)
+        columns = [col[0] for col in self.cursor.description]
+        return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
+
+    def update_address(self, address_id: int, updates: Dict):
+        """Atualiza os dados de um endereço no survey"""
+        set_clause = ', '.join([f"{key} = ?" for key in updates.keys()])
+        values = list(updates.values())
+        values.append(address_id)
+        
+        query = f"UPDATE survey SET {set_clause} WHERE id = ?"
+        self.cursor.execute(query, values)
+        self.conn.commit()
     
     def expand_complemento(self, value):
         if pd.isna(value):
             return None
         try:
+            value = str(value)
+            
             match = re.match(r'(.*?)(\d+)\s*-\s*(\d+)', value)
             if match:
                 base = match.group(1).strip()
@@ -308,6 +412,148 @@ class Database:
         except Exception as e:
             self.conn.rollback()
             return False, f"Erro na importação: {str(e)}"
+        
+    def get_roteiro_by_cep(self, cep: str) -> Optional[Dict]:
+        """Retorna um roteiro pelo CEP (formato: 'XXXXXXXX')"""
+        if not cep or not cep.strip():
+            return None
+        
+        # Remover espaços e garantir que só tem números
+        cep_limpo = ''.join(c for c in cep if c.isdigit())
+        
+        if not cep_limpo:
+            return None
+        
+        # Busca exata pelo CEP
+        self.cursor.execute('''
+            SELECT * FROM roteiros 
+            WHERE cep = ?
+        ''', (cep_limpo,))
+        
+        result = self.cursor.fetchone()
+        
+        if result:
+            columns = [col[0] for col in self.cursor.description]
+            return dict(zip(columns, result))
+        
+        # Se não encontrou, tentar buscar pelos primeiros 5 dígitos
+        if len(cep_limpo) >= 5:
+            cep_prefixo = cep_limpo[:5]
+            self.cursor.execute('''
+                SELECT * FROM roteiros 
+                WHERE cep LIKE ?
+                LIMIT 1
+            ''', (f'{cep_prefixo}%',))
+            
+            result = self.cursor.fetchone()
+            if result:
+                columns = [col[0] for col in self.cursor.description]
+                return dict(zip(columns, result))
+        
+        return None
+            
+    def import_and_validate_surveys(self):
+        """Importa e valida TODOS os dados de campo para a tabela survey com flags de divergência"""
+        try:
+            # Limpar tabela survey antes de importar
+            self.cursor.execute("DELETE FROM survey")
+            
+            # Obter todos os registros de campo
+            self.cursor.execute("SELECT * FROM campo")
+            campo_records = self.cursor.fetchall()
+            campo_columns = [col[0] for col in self.cursor.description]
+            
+            total_imported = 0
+            
+            for record in campo_records:
+                campo_data = dict(zip(campo_columns, record))
+                
+                # Buscar roteiro correspondente pelo CEP
+                roteiro = self.get_roteiro_by_cep(campo_data.get('cep', ''))
+                
+                # Inicializar flags de validação
+                lograd_div = 2  # Assume divergente até provar o contrário
+                bairro_div = 2
+                cep_div = 2
+                
+                # Se não encontrou roteiro, status = 3 (Não encontrado)
+                if not roteiro:
+                    status = 3
+                else:
+                    # Validar campos
+                    cep_div = 1 if (campo_data.get('cep') and 
+                                roteiro.get('cep') and 
+                                campo_data['cep'].strip() == roteiro['cep'].strip()) else 2
+                    
+                    lograd_div = 1 if (campo_data.get('endereco_completo') and 
+                                    roteiro.get('nome_lograd') and 
+                                    self.normalize_text(campo_data['endereco_completo']) == 
+                                    self.normalize_text(roteiro['nome_lograd'])) else 2
+                    
+                    bairro_div = 1 if (campo_data.get('bairro') and 
+                                    roteiro.get('bairro') and 
+                                    self.normalize_text(campo_data['bairro']) == 
+                                    self.normalize_text(roteiro['bairro'])) else 2
+                    
+                    status = 1 if (lograd_div == 1 and bairro_div == 1 and cep_div == 1) else 2
+                    
+                # Preparar dados para inserção
+                survey_data = {
+                    'tipo_survey': 1,
+                    'coordX': campo_data.get('latitude'),
+                    'coordY': campo_data.get('longitude'),
+                    'logradouro': campo_data.get('endereco_completo'),
+                    'numero_fachada': campo_data.get('numero_fachada'),
+                    'bairro': campo_data.get('bairro'),
+                    'cep': campo_data.get('cep'),
+                    'status': status,
+                    'lograd_div': lograd_div,
+                    'bairro_div': bairro_div,
+                    'cep_div': cep_div,
+                    'data': campo_data.get('data'),
+                    'observacoes': 'Importado automático'
+                }
+                
+                # Adicionar informações do roteiro se existir
+                if roteiro:
+                    survey_data.update({
+                        'codigoZona': roteiro.get('codigo'),
+                        'nomeZona': roteiro.get('nome'),
+                        'localidade': roteiro.get('localidade'),
+                        'id_roteiro': roteiro.get('id_roteiro'),
+                        'id_localidade': roteiro.get('id_localidade'),
+                        'cod_lograd': roteiro.get('cod_lograd'),
+                        'cod_bairro': roteiro.get('cod_bairro'),
+                        'tipo_lograd': roteiro.get('tipo_lograd')
+                    })
+                
+                # Inserir survey usando o método corrigido insert_survey
+                self.insert_survey(survey_data)
+                total_imported += 1
+                
+            self.conn.commit()
+            return True, f"Importados e validados {total_imported} surveys (OK: {self.count_surveys_by_status(1)}, Divergentes: {self.count_surveys_by_status(2)}, Não encontrados: {self.count_surveys_by_status(3)})"
+            
+        except Exception as e:
+            self.conn.rollback()
+            return False, f"Erro na importação/validação: {str(e)}"
+
+    def count_surveys_by_status(self, status):
+        """Conta surveys por status"""
+        self.cursor.execute("SELECT COUNT(*) FROM survey WHERE status = ?", (status,))
+        return self.cursor.fetchone()[0]
+
+    def normalize_text(self, text):
+        """Normaliza texto para comparação: remove acentos, espaços extras e converte para minúsculas"""
+        if not text:
+            return ""
+        
+        import unicodedata
+        # Remove acentos
+        text = unicodedata.normalize('NFKD', str(text)).encode('ASCII', 'ignore').decode('ASCII')
+        # Remove espaços extras, pontuação e converte para minúsculas
+        text = ''.join(e for e in text if e.isalnum() or e.isspace())
+        return ' '.join(text.strip().lower().split())
     
     # Métodos para caixas ópticas
     def insert_caixas_opticas(self, caixas: List[Dict]):
@@ -508,8 +754,8 @@ class Database:
                     folder_name, folder_color, latitude, longitude, numero_fachada,
                     description, color, phone_number, timestamp, pin_icon_code,
                     tipo_imovel, pavimento, endereco_completo, complemento,
-                    quantidade, junto, data, inicio, termino, hps, postes, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    quantidade, junto, data, inicio, termino, hps, postes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 rec.get('folder_name'), rec.get('folder_color'), 
                 rec.get('latitude'), rec.get('longitude'),
@@ -521,65 +767,93 @@ class Database:
                 rec.get('quantidade'), rec.get('junto'),
                 rec.get('data'), rec.get('inicio'),
                 rec.get('termino'), rec.get('hps'),
-                rec.get('postes'), 2  # Status padrão: Divergente
+                rec.get('postes')
             ))
         self.conn.commit()
-    
-    def get_all_campo_addresses(self) -> List[Dict]:
-        """Retorna todos os endereços de campo"""
-        self.cursor.execute("SELECT * FROM campo")
-        columns = [col[0] for col in self.cursor.description]
-        return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
-    
-    def get_campo_addresses_by_status(self, status: int) -> List[Dict]:
-        """Retorna endereços de campo por status"""
+
+    def insert_survey(self, survey_data: Dict):
+        """Insere um registro de survey na tabela"""
         self.cursor.execute('''
-            SELECT * FROM campo 
-            WHERE status = ?
-        ''', (status,))
-        columns = [col[0] for col in self.cursor.description]
-        return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
-    
-    def get_divergent_addresses(self, divergence_type: str = None) -> List[Dict]:
-        """Retorna endereços divergentes, opcionalmente filtrando por tipo de divergência"""
-        query = "SELECT * FROM campo WHERE status = 2"
-        params = []
-        
-        if divergence_type:
-            query += " AND divergencias LIKE ?"
-            params.append(f'%{divergence_type}%')
-        
-        self.cursor.execute(query, params)
-        columns = [col[0] for col in self.cursor.description]
-        return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
-    
-    def update_address_status(self, address_id: int, status: int, divergences: str = None):
-        """Atualiza o status de um endereço"""
-        if divergences is not None:
-            self.cursor.execute('''
-                UPDATE campo 
-                SET status = ?, divergencias = ? 
-                WHERE id = ?
-            ''', (status, divergences, address_id))
-        else:
-            self.cursor.execute('''
-                UPDATE campo 
-                SET status = ? 
-                WHERE id = ?
-            ''', (status, address_id))
+            INSERT INTO survey (
+                tipo_survey, versao, autorizacao, gravado, idCEMobile,
+                coordX, coordY, codigoZona, nomeZona, localidade,
+                logradouro, numero_fachada, id_complemento1, argumento1,
+                id_complemento3, cep, cod_bairro, bairro, id_roteiro,
+                id_localidade, cod_lograd, tecnico_id, tecnico_nome,
+                empresa_id, empresa_nome, data, observacoes, totalUCs,
+                numPisos, ocupacao, redeInterna, fotoExteriorEdificio,
+                fotoFachadaEdificio, status, baixado
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            survey_data.get('tipo_survey'),
+            survey_data.get('versao'),
+            survey_data.get('autorizacao'),
+            survey_data.get('gravado', False),
+            survey_data.get('idCEMobile'),
+            survey_data.get('coordX'),
+            survey_data.get('coordY'),
+            survey_data.get('codigoZona'),
+            survey_data.get('nomeZona'),
+            survey_data.get('localidade'),
+            survey_data.get('logradouro'),
+            survey_data.get('numero_fachada'),
+            survey_data.get('id_complemento1'),
+            survey_data.get('argumento1'),
+            survey_data.get('id_complemento3'),
+            survey_data.get('cep'),
+            survey_data.get('cod_bairro'),
+            survey_data.get('bairro'),
+            survey_data.get('id_roteiro'),
+            survey_data.get('id_localidade'),
+            survey_data.get('cod_lograd'),
+            survey_data.get('tecnico_id'),
+            survey_data.get('tecnico_nome'),
+            survey_data.get('empresa_id'),
+            survey_data.get('empresa_nome'),
+            survey_data.get('data'),
+            survey_data.get('observacoes'),
+            survey_data.get('totalUCs', 0),
+            survey_data.get('numPisos', 0),
+            survey_data.get('ocupacao'),
+            survey_data.get('redeInterna'),
+            survey_data.get('fotoExteriorEdificio'),
+            survey_data.get('fotoFachadaEdificio'),
+            survey_data.get('status', 2),  # Default: Divergente
+            survey_data.get('baixado', False)
+        ))
+        return self.cursor.lastrowid
+
+    def insert_uc(self, survey_id: int, uc_data: Dict):
+        """Insere um registro de UC relacionado a um survey"""
+        self.cursor.execute('''
+            INSERT INTO uc (
+                survey_id, destinacao, id_complemento3, argumento3,
+                id_complemento4, argumento4_logico, argumento4_real
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            survey_id,
+            uc_data.get('destinacao'),
+            uc_data.get('id_complemento3'),
+            uc_data.get('argumento3'),
+            uc_data.get('id_complemento4'),
+            uc_data.get('argumento4_logico', 0),
+            uc_data.get('argumento4_real')
+        ))
         self.conn.commit()
-    
-    def update_address(self, address_id: int, updates: Dict):
-        """Atualiza os dados de um endereço"""
-        set_clause = ', '.join(f"{key} = ?" for key in updates.keys())
-        values = list(updates.values())
-        values.append(address_id)
-        
-        self.cursor.execute(f'''
-            UPDATE campo 
-            SET {set_clause} 
+
+    def get_all_surveys(self) -> List[Dict]:
+        """Retorna todos os surveys"""
+        self.cursor.execute("SELECT * FROM survey")
+        columns = [col[0] for col in self.cursor.description]
+        return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
+
+    def update_survey_status(self, survey_id: int, status: int):
+        """Atualiza o status de um survey"""
+        self.cursor.execute('''
+            UPDATE survey 
+            SET status = ? 
             WHERE id = ?
-        ''', values)
+        ''', (status, survey_id))
         self.conn.commit()
     
     # Métodos para logs de importação

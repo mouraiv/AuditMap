@@ -1,6 +1,5 @@
 import tkinter as tk
 import os
-import pandas as pd
 from tkinter import ttk, messagebox
 from tkinter import filedialog
 from xml_parser import XMLParser
@@ -79,11 +78,11 @@ class HomeFrame(tk.Frame):
         ).pack(pady=(10, 0))
         
         # Seção de validação
-        validation_frame = tk.LabelFrame(body, text="Validação", bg='#f0f0f0', padx=10, pady=10)
-        validation_frame.pack(fill='x')
+        self.validation_frame = tk.LabelFrame(body, text="Validação", bg='#f0f0f0', padx=10, pady=10)
+        #self.validation_frame.pack(fill='x')
         
         self.validation_btn = tk.Button(
-            validation_frame, text="Validar Endereços", 
+            self.validation_frame, text="Validar Endereços", 
             command=self.validate_addresses, state='disabled', bg='#2ecc71', fg='white'
         )
         self.validation_btn.pack(pady=10)
@@ -185,37 +184,46 @@ class HomeFrame(tk.Frame):
             if 'Longitude' in df.columns:
                 df['Longitude'] = df['Longitude'].apply(format_latlon)
 
-            # Função para converter valores para inteiros, se possível
-            def converter_para_inteiro(valor):
+            # Função para converter valores para strings inteiros
+            def converter_para_str_int(valor):
                 if pd.isna(valor):
                     return None
                 try:
-                    return int(valor)
-                except ValueError:
-                    return valor  # Caso não seja um número inteiro, retorna o valor original
+                    valor_str = str(valor)
+                    if valor_str.endswith('.0'):
+                        valor_str = valor_str[:-2]  # Remove o ".0"
+                    return valor_str
+                except Exception:
+                    return str(valor)
 
             # Aplicar conversão nas colunas que devem ser inteiras
             if 'Nº Fachada' in df.columns:
-                df['Nº Fachada'] = df['Nº Fachada'].apply(converter_para_inteiro)
+                df['Nº Fachada'] = df['Nº Fachada'].apply(converter_para_str_int)
 
             if 'Weblink: Quantidade' in df.columns:
-                df['Weblink: Quantidade'] = df['Weblink: Quantidade'].apply(converter_para_inteiro)
+                df['Weblink: Quantidade'] = df['Weblink: Quantidade'].apply(converter_para_str_int)
 
             if 'Weblink: Pavimento' in df.columns:
-                df['Weblink: Pavimento'] = df['Weblink: Pavimento'].apply(converter_para_inteiro)
+                df['Weblink: Pavimento'] = df['Weblink: Pavimento'].apply(converter_para_str_int)
 
             if 'hps' in df.columns:
-                df['hps'] = df['hps'].apply(converter_para_inteiro)
+                df['hps'] = df['hps'].apply(converter_para_str_int)
 
             if 'Postes' in df.columns:
-                df['Postes'] = df['Postes'].apply(converter_para_inteiro)
+                df['Postes'] = df['Postes'].apply(converter_para_str_int)
 
             # Converter para lista de dicionários
             data = df.to_dict('records')
 
             print("\nExemplo de registro processado:")
-            print(data[0] if data else "Nenhum dado encontrado")
 
+            if data[0]: 
+                data
+                #Exibir área de validação
+                self.validation_frame.pack(fill='x') 
+            else:
+                self.status_label.config(text="Nenhum dado encontrado", fg='#7f8c8d')
+                
             return data
 
         except Exception as e:
@@ -341,7 +349,51 @@ class HomeFrame(tk.Frame):
             self.status_label.config(text="Erro na importação", fg='#e74c3c')
     
     def validate_addresses(self):
-        self.controller.show_frame(self.controller.VALIDATION_FRAME)
+        """Chama a validação dos endereços após confirmação"""
+        if not messagebox.askyesno(
+            "Confirmar Validação",
+            "Deseja validar todos os endereços? Esta operação pode demorar alguns minutos."
+        ):
+            return
+        
+        # Mostrar status de processamento
+        self.status_label.config(text="Validando endereços...", fg='#f39c12')
+        self.update()  # Atualizar a interface
+        
+        try:
+            # Chamar a função de validação do banco de dados
+            success, message = self.controller.db.import_and_validate_surveys()
+            
+            if success:
+                # Obter estatísticas
+                stats = self.controller.db.get_divergence_types()
+                
+                # Mostrar mensagem com resumo
+                messagebox.showinfo(
+                    "Validação Concluída",
+                    f"Validação realizada com sucesso!\n\n"
+                    f"Total de endereços: {stats['total_registros']}\n"
+                    f"Endereços OK: {stats['registros_ok']}\n"
+                    f"Endereços com divergência: {stats['registros_divergentes']}\n"
+                    f"Endereços não encontrados: {stats['nao_encontrado']}"
+                )
+                
+                # Atualizar status na interface
+                self.status_label.config(
+                    text=f"Validação concluída - OK: {stats['registros_ok']}, Divergentes: {stats['registros_divergentes']}, Não encontrados: {stats['nao_encontrado']}",
+                    fg='#27ae60'
+                )
+                
+                # Mostrar frame de validação com resultados
+                self.controller.show_frame(self.controller.VALIDATION_FRAME)
+                self.controller.frames[self.controller.VALIDATION_FRAME].update_data()
+            else:
+                messagebox.showerror("Erro na Validação", message)
+                self.status_label.config(text="Erro na validação", fg='#e74c3c')
+                
+        except Exception as e:
+            messagebox.showerror("Erro", f"Falha ao validar endereços: {str(e)}")
+            self.status_label.config(text="Erro na validação", fg='#e74c3c')
     
     def update_data(self):
         # Atualizar status quando a tela é mostrada
