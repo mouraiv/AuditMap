@@ -1,4 +1,5 @@
 import sqlite3
+import re
 import pandas as pd
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -126,32 +127,18 @@ class Database:
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS campo (
                 id INTEGER PRIMARY KEY,
-                folder_name TEXT,
-                folder_color TEXT,
-                latitude REAL,
-                longitude REAL,
+                latitude TEXT, 
+                longitude TEXT,
                 numero_fachada TEXT,
-                description TEXT,
-                color TEXT,
-                phone_number TEXT,
-                timestamp TEXT,
-                pin_icon_code TEXT,
                 tipo_imovel TEXT,
                 pavimento TEXT,
                 endereco_completo TEXT,
                 bairro TEXT,
                 cep TEXT,
-                uf TEXT,
+                pais TEXT,
                 complemento TEXT,
                 quantidade TEXT,
-                junto TEXT,
-                data TEXT,
-                inicio TEXT,
-                termino TEXT,
-                hps TEXT,
-                postes TEXT,
-                status INTEGER DEFAULT 2,  -- 1=OK, 2=Divergente, 3=Baixado
-                divergencias TEXT
+                data TEXT
             )
         ''')
         
@@ -260,64 +247,53 @@ class Database:
         """)
         return self.cursor.fetchall()
     
+    def expand_complemento(self, value):
+        if pd.isna(value):
+            return None
+        try:
+            match = re.match(r'(.*?)(\d+)\s*-\s*(\d+)', value)
+            if match:
+                base = match.group(1).strip()
+                start = int(match.group(2))
+                end = int(match.group(3))
+                return ', '.join([f"{base} {i}" if i == start else str(i) for i in range(start, end + 1)])
+            return value
+        except Exception as e:
+            print(f"Erro ao processar complemento: {value} -> {e}")
+            return value
+
     def import_excel_data(self, file_path, data):
         try:
             # Limpar tabela antes de importar
             self.cursor.execute("DELETE FROM campo")
             
             for row in data:
-                # Garantir que os campos de endereço existam
                 endereco_completo = str(row.get('endereco', '')) if pd.notna(row.get('endereco')) else None
                 bairro = str(row.get('bairro', '')) if pd.notna(row.get('bairro')) else None
                 cep = str(row.get('cep', '')) if pd.notna(row.get('cep')) else None
                 pais = str(row.get('pais', '')) if pd.notna(row.get('pais')) else None
-                
-                # Converter campos numéricos
-                try:
-                    latitude = float(row['Latitude']) if pd.notna(row.get('Latitude')) else None
-                except:
-                    latitude = None
-                    print(f"Valor inválido para Latitude: {row.get('Latitude')}")
-                
-                try:
-                    longitude = float(row['Longitude']) if pd.notna(row.get('Longitude')) else None
-                except:
-                    longitude = None
-                    print(f"Valor inválido para Longitude: {row.get('Longitude')}")
-                
-                # Inserir dados
+
+                complemento = self.expand_complemento(row.get('Weblink: Complemento'))
+
                 self.cursor.execute('''
                     INSERT INTO campo (
-                        folder_name, folder_color, latitude, longitude, numero_fachada,
-                        description, color, phone_number, timestamp, pin_icon_code,
+                        latitude, longitude, numero_fachada,
                         tipo_imovel, pavimento, endereco_completo, bairro, cep, pais,
-                        complemento, quantidade, junto, data, inicio, termino, hps, postes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        complemento, quantidade, data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
-                    str(row.get('Folder name', '')) if pd.notna(row.get('Folder name')) else None,
-                    str(row.get('Folder color', '')) if pd.notna(row.get('Folder color')) else None,
-                    latitude,
-                    longitude,
+                    str(row.get('Latitude', '')) if pd.notna(row.get('Latitude')) else None,
+                    str(row.get('Longitude', '')) if pd.notna(row.get('Longitude')) else None,
                     str(row.get('Nº Fachada', '')) if pd.notna(row.get('Nº Fachada')) else None,
-                    str(row.get('Description', '')) if pd.notna(row.get('Description')) else None,
-                    str(row.get('Color', '')) if pd.notna(row.get('Color')) else None,
-                    str(row.get('Phone number', '')) if pd.notna(row.get('Phone number')) else None,
-                    str(row.get('Timestamp', '')) if pd.notna(row.get('Timestamp')) else None,
-                    str(row.get('Pin icon code', '')) if pd.notna(row.get('Pin icon code')) else None,
                     str(row.get('MultiChoiceSelection: Tipo HP/Moradia/Comercio/Apartamento', '')) if pd.notna(row.get('MultiChoiceSelection: Tipo HP/Moradia/Comercio/Apartamento')) else None,
                     str(row.get('Weblink: Pavimento', '')) if pd.notna(row.get('Weblink: Pavimento')) else None,
                     endereco_completo,
                     bairro,
                     cep,
                     pais,
-                    str(row.get('Weblink: Complemento', '')) if pd.notna(row.get('Weblink: Complemento')) else None,
+                    complemento,
                     str(row.get('Weblink: Quantidade', '')) if pd.notna(row.get('Weblink: Quantidade')) else None,
-                    str(row.get('junto?', '')) if pd.notna(row.get('junto?')) else None,
                     str(row.get('Data', '')) if pd.notna(row.get('Data')) else None,
-                    str(row.get('inicio', '')) if pd.notna(row.get('inicio')) else None,
-                    str(row.get('termino', '')) if pd.notna(row.get('termino')) else None,
-                    str(row.get('hps', '')) if pd.notna(row.get('hps')) else None,
-                    str(row.get('Postes', '')) if pd.notna(row.get('Postes')) else None
                 ))
             
             # Registrar importação

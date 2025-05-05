@@ -115,36 +115,41 @@ class HomeFrame(tk.Frame):
             self.validation_btn.config(state='normal')
 
     def read_excel_data(self, file_path):
-        """Lê o arquivo Excel com tratamento robusto de tipos"""
+        """Lê o arquivo Excel com tratamento robusto de tipos e formata Latitude/Longitude"""
         try:
             import pandas as pd
-            
-            # Ler o arquivo Excel
-            df = pd.read_excel(file_path)
+
+            # Ler o arquivo Excel forçando Latitude e Longitude como texto
+            df = pd.read_excel(file_path, dtype={'Latitude': str, 'Longitude': str})
 
             # Renomear coluna para nome consistente (se existir)
             if 'Weblink: EndereÃ§o completo' in df.columns:
                 df.rename(columns={'Weblink: EndereÃ§o completo': 'Weblink: Endereço completo'}, inplace=True)
-            
+
             # Verificar se a coluna de endereço existe
             endereco_col = 'Weblink: Endereço completo'
             if endereco_col not in df.columns:
                 print(f"\nColunas disponíveis no arquivo: {df.columns.tolist()}")
                 raise ValueError(f"Coluna de endereço ('{endereco_col}') não encontrada")
+            
+            def corrigir_codificacao(texto):
+                try:
+                    if pd.isna(texto):
+                        return None
+                    return texto.encode('latin1').decode('utf-8')
+                except:
+                    return texto  # Retorna como está se der erro
 
-            # Processar o endereço com tratamento robusto
+            # Função para processar o campo de endereço
             def processar_endereco(endereco):
                 try:
-                    if pd.isna(endereco):
+                    endereco_codificado = corrigir_codificacao(endereco)
+                    if pd.isna(endereco_codificado):
                         return {'endereco': None, 'bairro': None, 'cep': None, 'pais': None}
-                    
-                    # Converter para string (caso seja número ou outro tipo)
-                    endereco_str = str(endereco).strip()
+                    endereco_str = str(endereco_codificado).strip()
                     if not endereco_str:
                         return {'endereco': None, 'bairro': None, 'cep': None, 'pais': None}
-                    
                     partes = [p.strip() for p in endereco_str.split(',') if p.strip()]
-                    
                     return {
                         'endereco': partes[0] if len(partes) > 0 else None,
                         'bairro': partes[1] if len(partes) > 1 else None,
@@ -152,23 +157,67 @@ class HomeFrame(tk.Frame):
                         'pais': partes[3] if len(partes) > 3 else None
                     }
                 except Exception as e:
-                    print(f"Erro ao processar endereço '{endereco}': {str(e)}")
-                    return {'endereco': str(endereco), 'bairro': None, 'cep': None, 'pais': None}
-            
-            # Aplicar processamento
+                    print(f"Erro ao processar endereço '{endereco_codificado}': {str(e)}")
+                    return {'endereco': str(endereco_codificado), 'bairro': None, 'cep': None, 'pais': None}
+
+            # Função para formatar latitude e longitude
+            def format_latlon(value):
+                if pd.isna(value):
+                    return None
+                try:
+                    value = str(value).strip().replace('.', '')  # Remove pontos
+                    is_negative = value.startswith('-')
+                    if is_negative:
+                        value = value[1:]
+                    formatted = value[:2] + ',' + value[2:]
+                    return '-' + formatted if is_negative else formatted
+                except Exception as e:
+                    print(f"Erro ao formatar latitude/longitude: {value} -> {e}")
+                    return None
+
+            # Processar e expandir colunas de endereço
             enderecos_processados = df[endereco_col].apply(processar_endereco)
-            
-            # Adicionar novos campos
             df = df.join(pd.json_normalize(enderecos_processados))
-            
+
+            # Aplicar formatação em Latitude e Longitude (se existirem)
+            if 'Latitude' in df.columns:
+                df['Latitude'] = df['Latitude'].apply(format_latlon)
+            if 'Longitude' in df.columns:
+                df['Longitude'] = df['Longitude'].apply(format_latlon)
+
+            # Função para converter valores para inteiros, se possível
+            def converter_para_inteiro(valor):
+                if pd.isna(valor):
+                    return None
+                try:
+                    return int(valor)
+                except ValueError:
+                    return valor  # Caso não seja um número inteiro, retorna o valor original
+
+            # Aplicar conversão nas colunas que devem ser inteiras
+            if 'Nº Fachada' in df.columns:
+                df['Nº Fachada'] = df['Nº Fachada'].apply(converter_para_inteiro)
+
+            if 'Weblink: Quantidade' in df.columns:
+                df['Weblink: Quantidade'] = df['Weblink: Quantidade'].apply(converter_para_inteiro)
+
+            if 'Weblink: Pavimento' in df.columns:
+                df['Weblink: Pavimento'] = df['Weblink: Pavimento'].apply(converter_para_inteiro)
+
+            if 'hps' in df.columns:
+                df['hps'] = df['hps'].apply(converter_para_inteiro)
+
+            if 'Postes' in df.columns:
+                df['Postes'] = df['Postes'].apply(converter_para_inteiro)
+
             # Converter para lista de dicionários
             data = df.to_dict('records')
-            
+
             print("\nExemplo de registro processado:")
             print(data[0] if data else "Nenhum dado encontrado")
-            
+
             return data
-        
+
         except Exception as e:
             raise Exception(f"Erro ao ler Excel: {str(e)}")
         
