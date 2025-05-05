@@ -157,7 +157,7 @@ class Database:
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS survey (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                tipo_survey INTEGER NOT NULL, -- 1 = moradia (tipo="M"), 2 = edificio (tipo="E")
+                tipo_survey INTEGER NOT NULL DEFAULT 1,
                 versao TEXT,
                 autorizacao TEXT,
                 gravado BOOLEAN,
@@ -190,10 +190,10 @@ class Database:
                 redeInterna TEXT,
                 fotoExteriorEdificio TEXT,
                 fotoFachadaEdificio TEXT,
-                status INTEGER NOT NULL, -- 1 = OK, 2 = Divergente, 3 = Não encontrado,
-                lograd_div INTEGER NOT NULL, -- 1 = OK, 2 = Divergente,
-                bairro_div INTEGER NOT NULL, -- 1 = OK, 2 = Divergente,
-                cep_div INTEGER NOT NULL, -- 1 = OK, 2 = Divergente,
+                status INTEGER DEFAULT 3, -- 1 = OK, 2 = Divergente, 3 = Não encontrado
+                lograd_div INTEGER DEFAULT 2, -- 1 = OK, 2 = Divergente
+                bairro_div INTEGER DEFAULT 2, -- 1 = OK, 2 = Divergente
+                cep_div INTEGER DEFAULT 2, -- 1 = OK, 2 = Divergente
                 baixado BOOLEAN
             )
         ''')
@@ -468,66 +468,73 @@ class Database:
             for record in campo_records:
                 campo_data = dict(zip(campo_columns, record))
                 
+                # Inicializar flags de validação com valores padrão
+                lograd_div = 2  # Assume divergente (2) como padrão
+                bairro_div = 2
+                cep_div = 2
+                status = 3  # Assume não encontrado (3) como padrão
+                
                 # Buscar roteiro correspondente pelo CEP
                 roteiro = self.get_roteiro_by_cep(campo_data.get('cep', ''))
                 
-                # Inicializar flags de validação
-                lograd_div = 2  # Assume divergente até provar o contrário
-                bairro_div = 2
-                cep_div = 2
-                
-                # Se não encontrou roteiro, status = 3 (Não encontrado)
-                if not roteiro:
-                    status = 3
-                else:
-                    # Validar campos
-                    cep_div = 1 if (campo_data.get('cep') and 
-                                roteiro.get('cep') and 
-                                campo_data['cep'].strip() == roteiro['cep'].strip()) else 2
+                if roteiro:
+                    # Validar CEP
+                    cep_campo = campo_data.get('cep', '').strip() if campo_data.get('cep') else ''
+                    cep_roteiro = roteiro.get('cep', '').strip() if roteiro.get('cep') else ''
+                    cep_div = 1 if cep_campo and cep_roteiro and cep_campo == cep_roteiro else 2
                     
-                    lograd_div = 1 if (campo_data.get('endereco_completo') and 
-                                    roteiro.get('nome_lograd') and 
-                                    self.normalize_text(campo_data['endereco_completo']) == 
-                                    self.normalize_text(roteiro['nome_lograd'])) else 2
+                    # Validar logradouro
+                    logradouro_campo = self.normalize_text(campo_data.get('endereco_completo', ''))
+                    logradouro_roteiro = self.normalize_text(roteiro.get('nome_lograd', ''))
+                    lograd_div = 1 if logradouro_campo and logradouro_roteiro and logradouro_campo == logradouro_roteiro else 2
                     
-                    bairro_div = 1 if (campo_data.get('bairro') and 
-                                    roteiro.get('bairro') and 
-                                    self.normalize_text(campo_data['bairro']) == 
-                                    self.normalize_text(roteiro['bairro'])) else 2
+                    # Validar bairro
+                    bairro_campo = self.normalize_text(campo_data.get('bairro', ''))
+                    bairro_roteiro = self.normalize_text(roteiro.get('bairro', ''))
+                    bairro_div = 1 if bairro_campo and bairro_roteiro and bairro_campo == bairro_roteiro else 2
                     
+                    # Definir status geral
                     status = 1 if (lograd_div == 1 and bairro_div == 1 and cep_div == 1) else 2
-                    
-                # Preparar dados para inserção
+                
+                # Preparar dados para inserção garantindo que todos os campos NOT NULL tenham valores
                 survey_data = {
                     'tipo_survey': 1,
-                    'coordX': campo_data.get('latitude'),
-                    'coordY': campo_data.get('longitude'),
-                    'logradouro': campo_data.get('endereco_completo'),
-                    'numero_fachada': campo_data.get('numero_fachada'),
-                    'bairro': campo_data.get('bairro'),
-                    'cep': campo_data.get('cep'),
+                    'coordX': campo_data.get('latitude', ''),
+                    'coordY': campo_data.get('longitude', ''),
+                    'logradouro': campo_data.get('endereco_completo', ''),
+                    'numero_fachada': campo_data.get('numero_fachada', ''),
+                    'bairro': campo_data.get('bairro', ''),
+                    'cep': campo_data.get('cep', ''),
                     'status': status,
                     'lograd_div': lograd_div,
                     'bairro_div': bairro_div,
                     'cep_div': cep_div,
-                    'data': campo_data.get('data'),
-                    'observacoes': 'Importado automático'
+                    'data': campo_data.get('data', datetime.now().strftime('%Y-%m-%d')),
+                    'observacoes': 'Importado automático',
+                    # Valores padrão para outros campos NOT NULL
+                    'versao': '',
+                    'autorizacao': '',
+                    'gravado': False,
+                    'idCEMobile': 0,
+                    'totalUCs': 0,
+                    'numPisos': 0,
+                    'baixado': False
                 }
                 
                 # Adicionar informações do roteiro se existir
                 if roteiro:
                     survey_data.update({
-                        'codigoZona': roteiro.get('codigo'),
-                        'nomeZona': roteiro.get('nome'),
-                        'localidade': roteiro.get('localidade'),
-                        'id_roteiro': roteiro.get('id_roteiro'),
-                        'id_localidade': roteiro.get('id_localidade'),
-                        'cod_lograd': roteiro.get('cod_lograd'),
-                        'cod_bairro': roteiro.get('cod_bairro'),
-                        'tipo_lograd': roteiro.get('tipo_lograd')
+                        'codigoZona': roteiro.get('codigo', ''),
+                        'nomeZona': roteiro.get('nome', ''),
+                        'localidade': roteiro.get('localidade', ''),
+                        'id_roteiro': roteiro.get('id_roteiro', 0),
+                        'id_localidade': roteiro.get('id_localidade', 0),
+                        'cod_lograd': roteiro.get('cod_lograd', 0),
+                        'cod_bairro': roteiro.get('cod_bairro', 0),
+                        'tipo_lograd': roteiro.get('tipo_lograd', '')
                     })
                 
-                # Inserir survey usando o método corrigido insert_survey
+                # Inserir survey
                 self.insert_survey(survey_data)
                 total_imported += 1
                 
