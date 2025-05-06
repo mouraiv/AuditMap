@@ -1,5 +1,7 @@
 import tkinter as tk
 import os
+import threading
+from database import Database
 from tkinter import ttk, messagebox
 from tkinter import filedialog
 from xml_parser import XMLParser
@@ -8,6 +10,10 @@ class HomeFrame(tk.Frame):
     def __init__(self, parent, controller):
         tk.Frame.__init__(self, parent)
         self.controller = controller
+        
+        # Adicionar estes atributos para controlar o estado das operações
+        self.running_validation = False  # Para controlar a validação
+        self.running_import = False      # Para controlar a importação
         
         self.configure(bg='#f0f0f0')
         self.grid_columnconfigure(0, weight=1)
@@ -72,28 +78,153 @@ class HomeFrame(tk.Frame):
         ).pack(side='left', padx=(10, 0))
         
         # Botão de importar
-        tk.Button(
+        self.import_btn = tk.Button(
             import_frame, text="Importar Bases", 
-            command=self.import_bases, bg='#3498db', fg='white'
-        ).pack(pady=(10, 0))
+            command=self.start_import_thread, bg='#3498db', fg='white'
+        )
+        self.import_btn.pack(pady=(10, 0))
+        
+        # Progresso de importação (dentro da seção de importação)
+        self.import_progress_frame = tk.Frame(import_frame, bg='#f0f0f0')
+        
+        self.import_progress_label = tk.Label(
+            self.import_progress_frame, 
+            text="",  # Texto será definido durante a operação
+            font=('Helvetica', 10), 
+            bg='#f0f0f0'
+        )
+        self.import_progress_label.pack(pady=(0, 5))
+        
+        self.import_progress = ttk.Progressbar(
+            self.import_progress_frame, 
+            mode='indeterminate',
+            length=300
+        )
+        self.import_progress.pack(pady=(0, 5))
         
         # Seção de validação
         self.validation_frame = tk.LabelFrame(body, text="Validação", bg='#f0f0f0', padx=10, pady=10)
-        #self.validation_frame.pack(fill='x')
+        # Frame auxiliar para os botões
+        button_container = tk.Frame(self.validation_frame, bg='#f0f0f0')
+        button_container.pack(pady=(0, 10), anchor='center')  # Centraliza o frame
         
         self.validation_btn = tk.Button(
-            self.validation_frame, text="Validar Endereços", 
-            command=self.validate_addresses, state='disabled', bg='#2ecc71', fg='white'
+            button_container, text="Validar Endereços", 
+            command=self.start_validation_thread, state='disabled', bg='#2ecc71', fg='white'
         )
-        self.validation_btn.pack(pady=10)
+
+        self.correct_btn = tk.Button(
+            button_container, text="Corrigir Divergências", 
+            command=self.correct_divergences, bg='#e74c3c', fg='white'
+        )
+        
+        # Progresso de validação (dentro da seção de validação)
+        self.validation_progress_frame = tk.Frame(self.validation_frame, bg='#f0f0f0')
+        
+        self.validation_progress_label = tk.Label(
+            self.validation_progress_frame, 
+            text="",  # Texto será definido durante a operação
+            font=('Helvetica', 10), 
+            bg='#f0f0f0'
+        )
+        self.validation_progress_label.pack(pady=(0, 5))
+        
+        self.validation_progress = ttk.Progressbar(
+            self.validation_progress_frame, 
+            mode='determinate',
+            length=300,
+            maximum=100
+        )
+        self.validation_progress.pack(pady=(0, 5))
         
         # Status
         self.status_label = tk.Label(
             body, text="Nenhuma base importada", 
-            font=('Helvetica', 9), bg='#f0f0f0', fg='#7f8c8d'
+            font=('Helvetica', 12, 'bold'), bg='#f0f0f0', fg='#7f8c8d'
         )
-        self.status_label.pack(pady=(20, 0))
+        #self.status_label.pack(pady=(20, 0))
+
+        self.after_idle(self.check_existing_validated_data)
+
+    def correct_divergences(self):
+        self.controller.show_frame('CorrectionFrame')
     
+    def check_existing_validated_data(self):
+        try:
+            db = Database()
+            db.connect()
+
+            # Verificar se já existem dados validados
+            total_registros = db.count_total_registros_survey()
+
+            print(f"Total de registros validados: {total_registros}")
+
+            # Obter estatísticas usando a mesma conexão
+            stats = db.get_divergence_types()
+
+            db.close()
+
+            if total_registros > 0:
+                self.validation_btn.config(text="Revalidar Endereços")
+                self.validation_btn.config(state='normal')
+                self.has_validated_data = True
+                self.validation_frame.pack(fill='x', pady=(0, 20))
+                self.validation_btn.pack(side='left', padx=5)
+                self.correct_btn.pack(side='left', padx=5)
+                
+                # Atualizar status na interface
+                self.status_label.config(
+                    text=f"Validação concluída - OK: {stats['registros_ok']}, Divergentes: {stats['registros_divergentes']}, Não encontrados: {stats['nao_encontrado']}",
+                    fg='#27ae60'
+                )
+                self.status_label.pack(pady=(20, 0))
+            else:
+                self.validation_btn.config(text="Validar Endereços")
+                self.has_validated_data = False
+                self.validation_btn.pack(side='left', padx=5)
+                self.correct_btn.pack_forget()  # Esconder botão corrigir divergências
+
+        except Exception as e:
+            print(f"Erro ao verificar registros validados: {e}")
+            self.has_validated_data = False
+
+    def update_progress_bar(self, current, total):
+        percent = int((current / total) * 100)
+        self.validation_progress['value'] = percent
+        self.validation_progress_label.config(text=f"Validando dados... {percent}%")
+        self.update_idletasks()
+
+    def show_import_progress(self, message):
+        """Mostra o indicador de progresso de importação"""
+        self.import_progress_label.config(text=message)
+        self.import_progress_frame.pack(fill='x', pady=(10, 0))
+        self.import_progress.start()
+        self.import_btn.config(state='disabled')
+        self.update()
+    
+    def hide_import_progress(self):
+        """Esconde o indicador de progresso de importação"""
+        self.import_progress.stop()
+        self.import_progress_frame.pack_forget()
+        self.import_btn.config(state='normal')
+        self.check_existing_validated_data()
+        self.update()
+    
+    def show_validation_progress(self, message):
+        """Mostra o indicador de progresso de validação"""
+        self.validation_progress_label.config(text=message)
+        self.validation_progress_frame.pack(fill='x', pady=(10, 0))
+        self.validation_btn.config(state='disabled')
+        self.update()
+    
+    def hide_validation_progress(self):
+        """Esconde o indicador de progresso de validação"""
+        self.validation_progress.stop()
+        self.validation_progress_frame.pack_forget()
+        self.validation_btn.config(state='normal')
+        self.check_existing_validated_data()
+        self.update()
+
     def select_matrix_folder(self):
         folder_path = filedialog.askdirectory(title="Selecione a pasta com os arquivos XML")
         if folder_path:
@@ -112,7 +243,248 @@ class HomeFrame(tk.Frame):
     def check_import_ready(self):
         if self.matrix_path.get() and self.campo_path.get():
             self.validation_btn.config(state='normal')
+    
+    def start_import_thread(self):
+        """Inicia a importação em uma thread separada"""
+        if not messagebox.askyesno(
+            "Confirmar Importação",
+            "Deseja importar todas as bases? Esta operação pode demorar alguns minutos."
+        ):
+            return
+        
+        if self.running_import:
+            return
+            
+        self.show_import_progress("Importando bases de dados...")
+        
+        # Criar e iniciar a thread de importação
+        import_thread = threading.Thread(
+            target=self.import_bases_thread,
+            args=(self.matrix_path.get(), self.campo_path.get()),
+            daemon=True
+        )
+        import_thread.start()
+    
+    def start_validation_thread(self):
+        """Inicia a validação em uma thread separada"""
+        if self.has_validated_data:
+            confirm = messagebox.askyesno(
+                "Revalidar Endereços",
+                "Já existem dados validados!\nSe prosseguir com a revalidação, os dados já validados serão perdidos.\n\nDeseja prosseguir?"
+            )
+        else:
+            confirm = messagebox.askyesno(
+                "Confirmar Validação",
+                "Deseja validar todos os endereços? Esta operação pode demorar alguns minutos."
+            )
 
+        if not confirm:
+            return
+
+        if self.running_validation:
+            return
+
+        self.running_validation = True
+        self.show_validation_progress("Validando endereços...")
+
+        validation_thread = threading.Thread(
+            target=self.validate_addresses_thread,
+            daemon=True
+        )
+        validation_thread.start()
+    
+    def validate_addresses_thread(self):
+        """Função executada na thread separada para validação"""
+        try:
+            # Cria uma nova instância do Database para esta thread
+            db = Database()  # Isso cria uma nova conexão
+            db.connect()     # Garante que a conexão está ativa
+
+            total_registros = db.count_total_registros_campo()
+
+            # Passe a função de callback corretamente
+            progress_callback = lambda current: self.update_progress_bar(current, total_registros) 
+            
+            # Chamar a função de validação usando a nova conexão
+            success, message = db.import_and_validate_surveys(progress_callback=progress_callback)
+            
+            # Obter estatísticas usando a mesma conexão
+            stats = db.get_divergence_types()
+            
+            # Atualizar a interface na thread principal
+            self.after(0, self.on_validation_complete, success, message, stats)
+            
+        except Exception as e:
+            self.after(0, self.on_validation_error, str(e))
+        finally:
+            self.running_validation = False
+            if db:
+                db.close()  # Fecha a conexão quando terminar
+    
+    def on_validation_complete(self, success, message, stats):
+        """Chamado quando a validação é concluída"""
+        self.hide_validation_progress()
+        
+        if success:
+            # Mostrar mensagem com resumo
+            messagebox.showinfo(
+                "Validação Concluída",
+                f"Validação realizada com sucesso!\n\n"
+                f"Total de endereços: {stats['total_registros']}\n"
+                f"Endereços OK: {stats['registros_ok']}\n"
+                f"Endereços com divergência: {stats['registros_divergentes']}\n"
+                f"Endereços não encontrados: {stats['nao_encontrado']}"
+            )
+            
+            # Atualizar status na interface
+            self.status_label.config(
+                text=f"Validação concluída - OK: {stats['registros_ok']}, Divergentes: {stats['registros_divergentes']}, Não encontrados: {stats['nao_encontrado']}",
+                fg='#27ae60'
+            )
+            self.validation_btn.config(text="Revalidar Endereços")
+            
+            # Atualizar os dados na interface principal
+            if hasattr(self.controller, 'frames') and hasattr(self.controller, 'VALIDATION_FRAME'):
+                if self.controller.VALIDATION_FRAME in self.controller.frames:
+                    self.controller.show_frame(self.controller.VALIDATION_FRAME)
+                    self.controller.frames[self.controller.VALIDATION_FRAME].update_data()
+        else:
+            messagebox.showerror("Erro na Validação", message)
+            self.status_label.config(text="Erro na validação", fg='#e74c3c')
+    
+    def on_validation_error(self, error_msg):
+        """Chamado quando ocorre um erro na validação"""
+        self.hide_validation_progress()
+        messagebox.showerror("Erro", f"Falha ao validar endereços: {error_msg}")
+        self.status_label.config(text="Erro na validação", fg='#e74c3c')
+    
+    def import_bases_thread(self, matrix_folder, campo_file):
+        """Função executada na thread separada para importação"""
+        try:
+            # Cria uma nova instância do Database para esta thread
+            db = Database()
+            db.connect()
+
+            # Mapeamento dos arquivos XML e seus respectivos parsers
+            xml_files = {
+                'caixasopticas.xml': {
+                    'parser': XMLParser.parse_caixas_opticas,
+                    'importer': db.insert_caixas_opticas
+                },
+                'complementos.xml': {
+                    'parser': XMLParser.parse_complementos,
+                    'importer': db.insert_complementos
+                },
+                'empresas.xml': {
+                    'parser': XMLParser.parse_empresas,
+                    'importer': db.insert_empresas
+                },
+                'operadores.xml': {
+                    'parser': XMLParser.parse_operadores,
+                    'importer': db.insert_operadores
+                },
+                'roteiro.xml': {
+                    'parser': XMLParser.parse_roteiros,
+                    'importer': db.insert_roteiros
+                },
+                'tipos_imovel.xml': {
+                    'parser': XMLParser.parse_tipos_imovel,
+                    'importer': db.insert_tipos_imovel
+                },
+                'zonas.xml': {
+                    'parser': XMLParser.parse_zonas,
+                    'importer': db.insert_zonas
+                }
+            }
+            
+            imported_files = []
+            error_occurred = False
+            error_message = ""
+            
+            # Verificar se todos os arquivos XML necessários existem
+            missing_files = []
+            for xml_file in xml_files.keys():
+                if not os.path.exists(os.path.join(matrix_folder, xml_file)):
+                    missing_files.append(xml_file)
+            
+            if missing_files:
+                self.after(0, self.on_import_error, 
+                          f"Os seguintes arquivos não foram encontrados na pasta:\n{', '.join(missing_files)}")
+                return
+            
+            # Iniciar transação
+            db.conn.execute("BEGIN TRANSACTION")
+            
+            # 1. Processar cada arquivo XML
+            for xml_file, handlers in xml_files.items():
+                file_path = os.path.join(matrix_folder, xml_file)
+                
+                try:
+                    # Chamar o método estático diretamente na classe
+                    data = handlers['parser'](file_path)
+                    
+                    # Importar para o banco de dados
+                    handlers['importer'](data)
+                    
+                    imported_files.append(xml_file)
+                    
+                except Exception as e:
+                    error_occurred = True
+                    error_message = f"Erro ao processar {xml_file}:\n{str(e)}"
+                    break
+            
+            # 2. Se os XMLs foram importados com sucesso, processar o Excel de campo
+            if not error_occurred:
+                try:
+                    # Ler dados do Excel
+                    excel_data = self.read_excel_data(campo_file)
+                    
+                    # Importar dados de campo
+                    success, message = db.import_excel_data(campo_file, excel_data)
+                    
+                    if not success:
+                        error_occurred = True
+                        error_message = f"Erro ao importar Excel de campo:\n{message}"
+                    else:
+                        imported_files.append(os.path.basename(campo_file))
+                
+                except Exception as e:
+                    error_occurred = True
+                    error_message = f"Erro ao processar arquivo Excel:\n{str(e)}"
+            
+            if error_occurred:
+                # Rollback em caso de erro
+                db.conn.rollback()
+                self.after(0, self.on_import_error, error_message)
+            else:
+                # Commit se tudo ocorrer bem
+                db.conn.commit()
+                self.after(0, self.on_import_complete, imported_files)
+        
+        except Exception as e:
+            db.conn.rollback()
+            self.after(0, self.on_import_error, f"Ocorreu um erro inesperado:\n{str(e)}")
+        finally:
+            db.close()  # Fecha a conexão quando terminar
+    
+    def on_import_complete(self, imported_files):
+        """Chamado quando a importação é concluída com sucesso"""
+        self.hide_import_progress()
+        messagebox.showinfo(
+            "Importação concluída", 
+            f"Todas as bases foram importadas com sucesso!\n\n"
+            f"Arquivos processados:\n{', '.join(imported_files)}"
+        )
+        self.status_label.config(text="Bases prontas para validação", fg='#27ae60')
+        self.validation_btn.config(text="Validar Endereços")
+        self.validation_btn.config(state='normal')
+    
+    def on_import_error(self, error_message):
+        """Chamado quando ocorre um erro na importação"""
+        self.hide_import_progress()
+        messagebox.showerror("Erro na Importação", error_message)
+        self.status_label.config(text="Erro na importação", fg='#e74c3c')
+    
     def read_excel_data(self, file_path):
         """Lê o arquivo Excel com tratamento robusto de tipos e formata Latitude/Longitude"""
         try:
@@ -220,7 +592,8 @@ class HomeFrame(tk.Frame):
             if data[0]: 
                 data
                 #Exibir área de validação
-                self.validation_frame.pack(fill='x') 
+                self.validation_frame.pack(fill='x')
+                self.status_label.pack(pady=(20, 0)) 
             else:
                 self.status_label.config(text="Nenhum dado encontrado", fg='#7f8c8d')
                 
@@ -229,125 +602,6 @@ class HomeFrame(tk.Frame):
         except Exception as e:
             raise Exception(f"Erro ao ler Excel: {str(e)}")
         
-    def import_bases(self):
-        matrix_folder = self.matrix_path.get()
-        campo_file = self.campo_path.get()
-        
-        if not matrix_folder or not campo_file:
-            messagebox.showerror("Erro", "Selecione tanto a pasta com os arquivos XML quanto o arquivo Excel de campo")
-            return
-        
-        # Mapeamento dos arquivos XML e seus respectivos parsers (usando métodos estáticos)
-        xml_files = {
-            'caixasopticas.xml': {
-                'parser': XMLParser.parse_caixas_opticas,  # Método estático
-                'importer': self.controller.db.insert_caixas_opticas
-            },
-            'complementos.xml': {
-                'parser': XMLParser.parse_complementos,
-                'importer': self.controller.db.insert_complementos
-            },
-            'empresas.xml': {
-                'parser': XMLParser.parse_empresas,
-                'importer': self.controller.db.insert_empresas
-            },
-            'operadores.xml': {
-                'parser': XMLParser.parse_operadores,
-                'importer': self.controller.db.insert_operadores
-            },
-            'roteiro.xml': {
-                'parser': XMLParser.parse_roteiros,
-                'importer': self.controller.db.insert_roteiros
-            },
-            'tipos_imovel.xml': {
-                'parser': XMLParser.parse_tipos_imovel,
-                'importer': self.controller.db.insert_tipos_imovel
-            },
-            'zonas.xml': {
-                'parser': XMLParser.parse_zonas,
-                'importer': self.controller.db.insert_zonas
-            }
-        }
-        
-        imported_files = []
-        error_occurred = False
-        error_message = ""
-        
-        try:
-            # Verificar se todos os arquivos XML necessários existem
-            missing_files = []
-            for xml_file in xml_files.keys():
-                if not os.path.exists(os.path.join(matrix_folder, xml_file)):
-                    missing_files.append(xml_file)
-            
-            if missing_files:
-                messagebox.showerror(
-                    "Arquivos faltando", 
-                    f"Os seguintes arquivos não foram encontrados na pasta:\n{', '.join(missing_files)}"
-                )
-                return
-            
-            # Iniciar transação
-            self.controller.db.conn.execute("BEGIN TRANSACTION")
-            
-            # 1. Processar cada arquivo XML
-            for xml_file, handlers in xml_files.items():
-                file_path = os.path.join(matrix_folder, xml_file)
-                
-                try:
-                    # Chamar o método estático diretamente na classe
-                    data = handlers['parser'](file_path)
-                    
-                    # Importar para o banco de dados
-                    handlers['importer'](data)
-                    
-                    imported_files.append(xml_file)
-                    
-                except Exception as e:
-                    error_occurred = True
-                    error_message = f"Erro ao processar {xml_file}:\n{str(e)}"
-                    break
-            
-            # 2. Se os XMLs foram importados com sucesso, processar o Excel de campo
-            if not error_occurred:
-                try:
-                    # Ler dados do Excel
-                    excel_data = self.read_excel_data(campo_file)
-                    
-                    # Importar dados de campo
-                    success, message = self.controller.db.import_excel_data(campo_file, excel_data)
-                    
-                    if not success:
-                        error_occurred = True
-                        error_message = f"Erro ao importar Excel de campo:\n{message}"
-                    else:
-                        imported_files.append(os.path.basename(campo_file))
-                
-                except Exception as e:
-                    error_occurred = True
-                    error_message = f"Erro ao processar arquivo Excel:\n{str(e)}"
-            
-            if error_occurred:
-                # Rollback em caso de erro
-                self.controller.db.conn.rollback()
-                messagebox.showerror("Erro na Importação", error_message)
-                self.status_label.config(text="Erro na importação", fg='#e74c3c')
-            else:
-                # Commit se tudo ocorrer bem
-                self.controller.db.conn.commit()
-                messagebox.showinfo(
-                    "Importação concluída", 
-                    f"Todas as bases foram importadas com sucesso!\n\n"
-                    f"Arquivos processados:\n{', '.join(imported_files)}"
-                )
-                self.status_label.config(text="Bases prontas para validação", fg='#27ae60')
-                self.validation_btn.config(state='normal')
-        
-        except Exception as e:
-            self.controller.db.conn.rollback()
-            messagebox.showerror("Erro Fatal", f"Ocorreu um erro inesperado:\n{str(e)}")
-            self.status_label.config(text="Erro na importação", fg='#e74c3c')
-    
     def validate_addresses(self):
         """Chama a validação dos endereços após confirmação"""
         if not messagebox.askyesno(

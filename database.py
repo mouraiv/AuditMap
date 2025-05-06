@@ -5,244 +5,231 @@ from datetime import datetime
 from typing import List, Dict, Optional
 class Database:
     def __init__(self, db_name="auditmap.db"):
-        self.conn = sqlite3.connect(db_name)
+        self.db_name = db_name
+        self.conn = None
+        self.cursor = None
+        self.connect()  # Conexão inicial para a thread principal
+
+    def connect(self):
+        """Cria uma nova conexão para a thread atual"""
+        if self.conn:
+            self.close()  # Fecha a conexão existente se houver
+            
+        self.conn = sqlite3.connect(self.db_name, check_same_thread=False)
         self.cursor = self.conn.cursor()
+        return self.conn
     
     def initialize_db(self):
-        # Tabela para armazenar as caixas ópticas
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS caixas_opticas (
-                id INTEGER PRIMARY KEY,
-                id_caixa INTEGER,
-                fabricante TEXT,
-                capacidade INTEGER,
-                designacao TEXT,
-                tipo_caixa TEXT,
-                altura INTEGER,
-                largura INTEGER,
-                profundidade INTEGER
-            )
-        ''')
-        
-        # Tabela para complementos
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS complementos (
-                id INTEGER PRIMARY KEY,
-                id_complemento INTEGER,
-                arg1_obrig TEXT,
-                arg2_obrig TEXT,
-                arg3_obrig TEXT,
-                arg4_obrig TEXT,
-                arg5_obrig TEXT,
-                tipo1 TEXT,
-                tipo2 TEXT,
-                tipo3 TEXT,
-                tipo4 TEXT,
-                tipo5 TEXT,
-                abrev TEXT,
-                tipo3_principal TEXT,
-                tipo_survey_tipo_3 TEXT,
-                visibilidade TEXT,
-                descricao TEXT
-            )
-        ''')
-        
-        # Tabela para empresas e técnicos
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS empresas (
-                id INTEGER PRIMARY KEY,
-                id_empresa INTEGER,
-                nome_empresa TEXT
-            )
-        ''')
-        
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tecnicos (
-                id INTEGER PRIMARY KEY,
-                id_empresa INTEGER,
-                id_tecnico INTEGER,
-                nome_tecnico TEXT,
-                FOREIGN KEY (id_empresa) REFERENCES empresas (id)
-            )
-        ''')
-        
-        # Tabela para operadores
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS operadores (
-                id INTEGER PRIMARY KEY,
-                id_operador INTEGER,
-                nome_operador TEXT
-            )
-        ''')
-        
-        # Tabela para roteiros (endereços matrix)
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS roteiros (
-                id INTEGER PRIMARY KEY,
-                id_roteiro INTEGER,
-                uf TEXT,
-                uf_abrev TEXT,
-                cod_municipio INTEGER,
-                municipio TEXT,
-                id_localidade INTEGER,
-                cod_localidade INTEGER,
-                localidade TEXT,
-                localidade_abrev TEXT,
-                cod_bairro INTEGER,
-                bairro TEXT,
-                cod_lograd INTEGER,
-                nome_lograd TEXT,
-                id_tipo_lograd INTEGER,
-                tipo_lograd TEXT,
-                tipo_lograd_abrev TEXT,
-                id_titulo INTEGER,
-                titulo TEXT,
-                titulo_abrev TEXT,
-                cep TEXT
-            )
-        ''')
-        
-        # Tabela para tipos de imóvel
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tipos_imovel (
-                id INTEGER PRIMARY KEY,
-                id_tipo INTEGER,
-                tipo_imovel TEXT,
-                abrev TEXT,
-                arg_obrig TEXT,
-                visibilidade TEXT
-            )
-        ''')
-        
-        # Tabela para zonas
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS zonas (
-                id INTEGER PRIMARY KEY,
-                codigo TEXT,
-                nome TEXT
-            )
-        ''')
-        
-        # Tabela para dados de campo
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS campo (
-                id INTEGER PRIMARY KEY,
-                latitude TEXT, 
-                longitude TEXT,
-                numero_fachada TEXT,
-                tipo_imovel TEXT,
-                pavimento TEXT,
-                endereco_completo TEXT,
-                bairro TEXT,
-                cep TEXT,
-                pais TEXT,
-                complemento TEXT,
-                quantidade TEXT,
-                data TEXT
-            )
-        ''')
-        
-        # Tabela para logs de importação
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS import_logs (
-                id INTEGER PRIMARY KEY,
-                file_type TEXT,
-                file_path TEXT,
-                import_date TEXT,
-                records_imported INTEGER
-            )
-        ''')
-
-        # Tabela para syrvey de campo
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS survey (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                tipo_survey INTEGER NOT NULL DEFAULT 1,
-                versao TEXT,
-                autorizacao TEXT,
-                gravado BOOLEAN,
-                idCEMobile INTEGER,
-                coordX TEXT,
-                coordY TEXT,
-                codigoZona TEXT,
-                nomeZona TEXT,
-                localidade TEXT,
-                logradouro TEXT,
-                numero_fachada TEXT,
-                id_complemento1 INTEGER,
-                argumento1 TEXT,
-                id_complemento3 INTEGER, -- pode ser usado também pela UC
-                cep TEXT,
-                cod_bairro INTEGER,
-                bairro TEXT,
-                id_roteiro INTEGER,
-                id_localidade INTEGER,
-                cod_lograd INTEGER,
-                tecnico_id INTEGER,
-                tecnico_nome TEXT,
-                empresa_id INTEGER,
-                empresa_nome TEXT,
-                data TEXT,
-                observacoes TEXT,
-                totalUCs INTEGER,
-                numPisos INTEGER,
-                ocupacao TEXT,
-                redeInterna TEXT,
-                fotoExteriorEdificio TEXT,
-                fotoFachadaEdificio TEXT,
-                status INTEGER DEFAULT 3, -- 1 = OK, 2 = Divergente, 3 = Não encontrado
-                lograd_div INTEGER DEFAULT 2, -- 1 = OK, 2 = Divergente
-                bairro_div INTEGER DEFAULT 2, -- 1 = OK, 2 = Divergente
-                cep_div INTEGER DEFAULT 2, -- 1 = OK, 2 = Divergente
-                baixado BOOLEAN
-            )
-        ''')
-
-        # Tabela para logs de importação
-        self.cursor.execute('''
-           CREATE TABLE IF NOT EXISTS uc (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                survey_id INTEGER NOT NULL,
-                destinacao TEXT,
-                id_complemento3 INTEGER,
-                argumento3 TEXT,
-                id_complemento4 INTEGER,
-                argumento4_logico INTEGER,
-                argumento4_real TEXT,
-                FOREIGN KEY (survey_id) REFERENCES survey(id)
-            )
-        ''')
-    
-        self.conn.commit()
-    
-    def import_xml_data(self, file_type, file_path, data):
+        """Inicializa o banco de dados (cria tabelas se não existirem)"""
         try:
-            if file_type == "caixas_opticas":
-                self._import_caixas_opticas(data)
-            elif file_type == "complementos":
-                self._import_complementos(data)
-            elif file_type == "empresas":
-                self._import_empresas(data)
-            elif file_type == "operadores":
-                self._import_operadores(data)
-            elif file_type == "roteiros":
-                self._import_roteiros(data)
-            elif file_type == "tipos_imovel":
-                self._import_tipos_imovel(data)
-            elif file_type == "zonas":
-                self._import_zonas(data)
-            
-            # Registrar a importação
+            # Tabela para armazenar as caixas ópticas
             self.cursor.execute('''
-                INSERT INTO import_logs (file_type, file_path, import_date, records_imported)
-                VALUES (?, ?, ?, ?)
-            ''', (file_type, file_path, datetime.now().isoformat(), len(data)))
+                CREATE TABLE IF NOT EXISTS caixas_opticas (
+                    id INTEGER PRIMARY KEY,
+                    id_caixa INTEGER,
+                    fabricante TEXT,
+                    capacidade INTEGER,
+                    designacao TEXT,
+                    tipo_caixa TEXT,
+                    altura INTEGER,
+                    largura INTEGER,
+                    profundidade INTEGER
+                )
+            ''')
             
+            # Tabela para complementos
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS complementos (
+                    id INTEGER PRIMARY KEY,
+                    id_complemento INTEGER,
+                    arg1_obrig TEXT,
+                    arg2_obrig TEXT,
+                    arg3_obrig TEXT,
+                    arg4_obrig TEXT,
+                    arg5_obrig TEXT,
+                    tipo1 TEXT,
+                    tipo2 TEXT,
+                    tipo3 TEXT,
+                    tipo4 TEXT,
+                    tipo5 TEXT,
+                    abrev TEXT,
+                    tipo3_principal TEXT,
+                    tipo_survey_tipo_3 TEXT,
+                    visibilidade TEXT,
+                    descricao TEXT
+                )
+            ''')
+            
+            # Tabela para empresas e técnicos
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS empresas (
+                    id INTEGER PRIMARY KEY,
+                    id_empresa INTEGER,
+                    nome_empresa TEXT
+                )
+            ''')
+            
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS tecnicos (
+                    id INTEGER PRIMARY KEY,
+                    id_empresa INTEGER,
+                    id_tecnico INTEGER,
+                    nome_tecnico TEXT,
+                    FOREIGN KEY (id_empresa) REFERENCES empresas (id)
+                )
+            ''')
+            
+            # Tabela para operadores
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS operadores (
+                    id INTEGER PRIMARY KEY,
+                    id_operador INTEGER,
+                    nome_operador TEXT
+                )
+            ''')
+            
+            # Tabela para roteiros (endereços matrix)
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS roteiros (
+                    id INTEGER PRIMARY KEY,
+                    id_roteiro INTEGER,
+                    uf TEXT,
+                    uf_abrev TEXT,
+                    cod_municipio INTEGER,
+                    municipio TEXT,
+                    id_localidade INTEGER,
+                    cod_localidade INTEGER,
+                    localidade TEXT,
+                    localidade_abrev TEXT,
+                    cod_bairro INTEGER,
+                    bairro TEXT,
+                    cod_lograd INTEGER,
+                    nome_lograd TEXT,
+                    id_tipo_lograd INTEGER,
+                    tipo_lograd TEXT,
+                    tipo_lograd_abrev TEXT,
+                    id_titulo INTEGER,
+                    titulo TEXT,
+                    titulo_abrev TEXT,
+                    cep TEXT
+                )
+            ''')
+            
+            # Tabela para tipos de imóvel
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS tipos_imovel (
+                    id INTEGER PRIMARY KEY,
+                    id_tipo INTEGER,
+                    tipo_imovel TEXT,
+                    abrev TEXT,
+                    arg_obrig TEXT,
+                    visibilidade TEXT
+                )
+            ''')
+            
+            # Tabela para zonas
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS zonas (
+                    id INTEGER PRIMARY KEY,
+                    codigo TEXT,
+                    nome TEXT
+                )
+            ''')
+            
+            # Tabela para dados de campo
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS campo (
+                    id INTEGER PRIMARY KEY,
+                    latitude TEXT, 
+                    longitude TEXT,
+                    numero_fachada TEXT,
+                    tipo_imovel TEXT,
+                    pavimento TEXT,
+                    endereco_completo TEXT,
+                    bairro TEXT,
+                    cep TEXT,
+                    pais TEXT,
+                    complemento TEXT,
+                    quantidade TEXT,
+                    data TEXT
+                )
+            ''')
+            
+            # Tabela para logs de importação
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS import_logs (
+                    id INTEGER PRIMARY KEY,
+                    file_type TEXT,
+                    file_path TEXT,
+                    import_date TEXT,
+                    records_imported INTEGER
+                )
+            ''')
+
+            # Tabela para syrvey de campo
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS survey (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tipo_survey INTEGER NOT NULL DEFAULT 1,
+                    versao TEXT,
+                    autorizacao TEXT,
+                    gravado BOOLEAN,
+                    idCEMobile INTEGER,
+                    coordX TEXT,
+                    coordY TEXT,
+                    codigoZona TEXT,
+                    nomeZona TEXT,
+                    localidade TEXT,
+                    logradouro TEXT,
+                    numero_fachada TEXT,
+                    id_complemento1 INTEGER,
+                    argumento1 TEXT,
+                    id_complemento3 INTEGER, -- pode ser usado também pela UC
+                    cep TEXT,
+                    cod_bairro INTEGER,
+                    bairro TEXT,
+                    id_roteiro INTEGER,
+                    id_localidade INTEGER,
+                    cod_lograd INTEGER,
+                    tecnico_id INTEGER,
+                    tecnico_nome TEXT,
+                    empresa_id INTEGER,
+                    empresa_nome TEXT,
+                    data TEXT,
+                    observacoes TEXT,
+                    totalUCs INTEGER,
+                    numPisos INTEGER,
+                    ocupacao TEXT,
+                    redeInterna TEXT,
+                    fotoExteriorEdificio TEXT,
+                    fotoFachadaEdificio TEXT,
+                    status INTEGER DEFAULT 3, -- 1 = OK, 2 = Divergente, 3 = Não encontrado
+                    lograd_div INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente
+                    bairro_div INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente
+                    cep_div INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente
+                    baixado BOOLEAN
+                )
+            ''')
+
+            # Tabela para logs de importação
+            self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS uc (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    survey_id INTEGER NOT NULL,
+                    destinacao TEXT,
+                    id_complemento3 INTEGER,
+                    argumento3 TEXT,
+                    id_complemento4 INTEGER,
+                    argumento4_logico INTEGER,
+                    argumento4_real TEXT,
+                    FOREIGN KEY (survey_id) REFERENCES survey(id)
+                )
+            ''')
+    
             self.conn.commit()
-            return True, f"Importação de {len(data)} registros concluída com sucesso."
         except Exception as e:
             self.conn.rollback()
-            return False, f"Erro na importação: {str(e)}"
+            raise e
     
     # Implementar metodos para importação de dados
     def _import_caixas_opticas(self, data):
@@ -370,7 +357,7 @@ class Database:
         try:
             # Limpar tabela antes de importar
             self.cursor.execute("DELETE FROM campo")
-            
+
             for row in data:
                 endereco_completo = str(row.get('endereco', '')) if pd.notna(row.get('endereco')) else None
                 bairro = str(row.get('bairro', '')) if pd.notna(row.get('bairro')) else None
@@ -405,6 +392,9 @@ class Database:
                 INSERT INTO import_logs (file_type, file_path, import_date, records_imported)
                 VALUES (?, ?, ?, ?)
             ''', ('campo', file_path, datetime.now().isoformat(), len(data)))
+
+            # Limpar tabela survey
+            self.cursor.execute("DELETE FROM survey")
             
             self.conn.commit()
             return True, f"Importados {len(data)} registros com sucesso"
@@ -412,6 +402,11 @@ class Database:
         except Exception as e:
             self.conn.rollback()
             return False, f"Erro na importação: {str(e)}"
+        
+    def count_total_registros_campo(self):
+        """Conta surveys por status"""
+        self.cursor.execute("SELECT COUNT(*) FROM campo")
+        return self.cursor.fetchone()[0]
         
     def get_roteiro_by_cep(self, cep: str) -> Optional[Dict]:
         """Retorna um roteiro pelo CEP (formato: 'XXXXXXXX')"""
@@ -452,7 +447,7 @@ class Database:
         
         return None
             
-    def import_and_validate_surveys(self):
+    def import_and_validate_surveys(self, progress_callback=None):
         """Importa e valida TODOS os dados de campo para a tabela survey com flags de divergência"""
         try:
             # Limpar tabela survey antes de importar
@@ -469,9 +464,9 @@ class Database:
                 campo_data = dict(zip(campo_columns, record))
                 
                 # Inicializar flags de validação com valores padrão
-                lograd_div = 2  # Assume divergente (2) como padrão
-                bairro_div = 2
-                cep_div = 2
+                lograd_div = 0  # Assume divergente (2) como padrão
+                bairro_div = 0
+                cep_div = 0
                 status = 3  # Assume não encontrado (3) como padrão
                 
                 # Buscar roteiro correspondente pelo CEP
@@ -480,22 +475,38 @@ class Database:
                 if roteiro:
                     # Validar CEP
                     cep_campo = campo_data.get('cep', '').strip() if campo_data.get('cep') else ''
-                    cep_roteiro = roteiro.get('cep', '').strip() if roteiro.get('cep') else ''
-                    cep_div = 1 if cep_campo and cep_roteiro and cep_campo == cep_roteiro else 2
+                    cep_roteiro_raw = roteiro.get('cep')
                     
-                    # Validar logradouro
-                    logradouro_campo = self.normalize_text(campo_data.get('endereco_completo', ''))
-                    logradouro_roteiro = self.normalize_text(roteiro.get('nome_lograd', ''))
-                    lograd_div = 1 if logradouro_campo and logradouro_roteiro and logradouro_campo == logradouro_roteiro else 2
-                    
-                    # Validar bairro
-                    bairro_campo = self.normalize_text(campo_data.get('bairro', ''))
-                    bairro_roteiro = self.normalize_text(roteiro.get('bairro', ''))
-                    bairro_div = 1 if bairro_campo and bairro_roteiro and bairro_campo == bairro_roteiro else 2
-                    
-                    # Definir status geral
-                    status = 1 if (lograd_div == 1 and bairro_div == 1 and cep_div == 1) else 2
-                
+                    if cep_campo and cep_roteiro_raw:
+                        cep_roteiro = cep_roteiro_raw.strip()
+                        cep_div = 1 if cep_campo == cep_roteiro else 2
+
+                    if cep_div == 1:
+                        # Validar logradouro
+                        logradouro_campo = self.normalize_text(campo_data.get('endereco_completo', ''))
+                        logradouro_roteiro_raw = roteiro.get('nome_lograd')
+                        if logradouro_campo and logradouro_roteiro_raw:
+                            logradouro_roteiro = self.normalize_text(logradouro_roteiro_raw)
+                            lograd_div = 1 if logradouro_campo == logradouro_roteiro else 2
+
+                        # Validar bairro
+                        bairro_campo = self.normalize_text(campo_data.get('bairro', ''))
+                        bairro_roteiro_raw = roteiro.get('bairro')
+                        if bairro_campo and bairro_roteiro_raw:
+                            bairro_roteiro = self.normalize_text(bairro_roteiro_raw)
+                            bairro_div = 1 if bairro_campo == bairro_roteiro else 2
+
+                        # Definir status (apenas se cep válido)
+                        if lograd_div == 1 and bairro_div == 1:
+                            status = 1  # Tudo OK
+                        elif lograd_div in [1, 2] or bairro_div in [1, 2]:
+                            status = 2  # Alguma divergência
+
+                    else:
+                        # Se o CEP não for encontrado, não faz sentido validar logradouro e bairro
+                        lograd_div = 0
+                        bairro_div = 0
+
                 # Preparar dados para inserção garantindo que todos os campos NOT NULL tenham valores
                 survey_data = {
                     'tipo_survey': 1,
@@ -538,12 +549,20 @@ class Database:
                 self.insert_survey(survey_data)
                 total_imported += 1
                 
+                if progress_callback:
+                    progress_callback(total_imported)
+                
             self.conn.commit()
             return True, f"Importados e validados {total_imported} surveys (OK: {self.count_surveys_by_status(1)}, Divergentes: {self.count_surveys_by_status(2)}, Não encontrados: {self.count_surveys_by_status(3)})"
             
         except Exception as e:
             self.conn.rollback()
             return False, f"Erro na importação/validação: {str(e)}"
+        
+    def count_total_registros_survey(self):
+        """Conta surveys por status"""
+        self.cursor.execute("SELECT COUNT(*) FROM survey")
+        return self.cursor.fetchone()[0]
 
     def count_surveys_by_status(self, status):
         """Conta surveys por status"""
@@ -789,8 +808,8 @@ class Database:
                 id_localidade, cod_lograd, tecnico_id, tecnico_nome,
                 empresa_id, empresa_nome, data, observacoes, totalUCs,
                 numPisos, ocupacao, redeInterna, fotoExteriorEdificio,
-                fotoFachadaEdificio, status, baixado
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                fotoFachadaEdificio, status, lograd_div, bairro_div, cep_div, baixado
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             survey_data.get('tipo_survey'),
             survey_data.get('versao'),
@@ -825,7 +844,10 @@ class Database:
             survey_data.get('redeInterna'),
             survey_data.get('fotoExteriorEdificio'),
             survey_data.get('fotoFachadaEdificio'),
-            survey_data.get('status', 2),  # Default: Divergente
+            survey_data.get('status', 3),  # Default: Divergente
+            survey_data.get('lograd_div', 0),  # Default: Divergente
+            survey_data.get('bairro_div', 0),  # Default: Divergente
+            survey_data.get('cep_div', 0),  # Default: Divergente
             survey_data.get('baixado', False)
         ))
         return self.cursor.lastrowid
