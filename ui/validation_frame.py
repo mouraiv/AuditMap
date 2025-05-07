@@ -26,38 +26,48 @@ class ValidationFrame(tk.Frame):
         body.grid(row=1, column=0, sticky='nsew')
         
         # Resumo da validação
-        summary_frame = tk.LabelFrame(body, text="Resumo", bg='#f0f0f0', padx=10, pady=10)
+        summary_frame = tk.LabelFrame(body, text="Resumo", font=('Helvetica', 10, 'bold'), bg='#f0f0f0', padx=10, pady=10)
         summary_frame.pack(fill='x', pady=(0, 20))
         
         self.total_label = tk.Label(
             summary_frame, text="Total de endereços: 0", 
-            font=('Helvetica', 10), bg='#f0f0f0'
+            font=('Helvetica', 10, 'bold'), bg='#f0f0f0'
         )
         self.total_label.pack(anchor='w')
         
         self.ok_label = tk.Label(
             summary_frame, text="Endereços OK: 0", 
-            font=('Helvetica', 10), bg='#f0f0f0', fg='green'
+            font=('Helvetica', 10, 'bold'), bg='#f0f0f0', fg='green'
         )
         self.ok_label.pack(anchor='w')
         
         self.div_label = tk.Label(
             summary_frame, text="Endereços com divergência: 0", 
-            font=('Helvetica', 10), bg='#f0f0f0', fg='red'
+            font=('Helvetica', 10, 'bold'), bg='#f0f0f0', fg='red'
         )
         self.div_label.pack(anchor='w')
         
         # Divergências detalhadas
-        div_frame = tk.LabelFrame(body, text="Divergências Detalhadas", bg='#f0f0f0', padx=10, pady=10)
+        div_frame = tk.LabelFrame(body, text="Divergências Detalhadas", font=('Helvetica', 10, 'bold'), bg='#f0f0f0', padx=10, pady=10)
         div_frame.pack(fill='x')
-        
-        # Treeview para mostrar divergências
-        self.tree = ttk.Treeview(div_frame, columns=('type', 'count'), show='headings')
+
+        # Estilo da Treeview
+        style = ttk.Style()
+        style.configure("Treeview.Heading", font=("Helvetica", 10, "bold"))
+        style.configure("Treeview", font=("Helvetica", 10, "bold"))
+
+        # Treeview
+        self.tree = ttk.Treeview(div_frame, columns=('type', 'count'), show='headings', height=10)
         self.tree.heading('type', text='Tipo de Divergência')
         self.tree.heading('count', text='Quantidade')
         self.tree.column('type', width=200)
         self.tree.column('count', width=100)
         self.tree.pack(fill='x')
+
+        # Cores alternadas e destaque para quantidade > 0
+        self.tree.tag_configure('even', background='#f0f0f0')
+        self.tree.tag_configure('odd', background='white')
+        self.tree.tag_configure('positive', foreground='red')
         
         # Botões de ação
         btn_frame = tk.Frame(body, bg='#f0f0f0')
@@ -65,19 +75,19 @@ class ValidationFrame(tk.Frame):
         
         self.export_btn = tk.Button(
             btn_frame, text="Exportar Endereços OK", 
-            state='disabled', bg='#3498db', fg='white'
+            state='disabled', bg='#3498db', fg='white', font=('Helvetica', 10, 'bold')
         )
         self.export_btn.pack(side='left', padx=(0, 10))
         
         self.correct_btn = tk.Button(
             btn_frame, text="Corrigir Divergências", 
-            command=self.correct_divergences, bg='#e74c3c', fg='white'
+            command=self.correct_divergences, bg='#e74c3c', fg='white', font=('Helvetica', 10, 'bold')
         )
         self.correct_btn.pack(side='left')
         
         back_btn = tk.Button(
             btn_frame, text="Voltar", 
-            command=lambda: controller.show_frame('HomeFrame')
+            command=lambda: controller.show_frame('HomeFrame'), font=('Helvetica', 10, 'bold')
         )
         back_btn.pack(side='right')
     
@@ -98,10 +108,13 @@ class ValidationFrame(tk.Frame):
             # Atualiza a treeview
             for item in self.tree.get_children():
                 self.tree.delete(item)
-                
-            for div_type, count in stats['divergencias'].items():
-                self.tree.insert('', 'end', values=(div_type.capitalize(), count))
-            
+
+            for i, (div_type, count) in enumerate(stats['divergencias'].items()):
+                tags = ['even' if i % 2 == 0 else 'odd']
+                if count > 0:
+                    tags.append('positive')
+                self.tree.insert('', 'end', values=(div_type.capitalize(), count), tags=tags)
+
             # Habilita botões conforme necessário
             self.export_btn.config(state='normal' if stats['total'] > 0 else 'disabled')
             

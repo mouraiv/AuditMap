@@ -161,8 +161,7 @@ class Database:
                     id INTEGER PRIMARY KEY,
                     file_type TEXT,
                     file_path TEXT,
-                    import_date TEXT,
-                    records_imported INTEGER
+                    import_date TEXT
                 )
             ''')
 
@@ -225,11 +224,47 @@ class Database:
                     FOREIGN KEY (survey_id) REFERENCES survey(id)
                 )
             ''')
-    
+
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_roteiro_cep ON roteiros(cep)")
+
             self.conn.commit()
         except Exception as e:
             self.conn.rollback()
             raise e
+        
+    # registrar importação
+    def registrar_importacao(self, file_type, file_path):
+        """Insere ou atualiza registros na tabela import_logs."""
+        self.cursor.execute("SELECT COUNT(*) FROM import_logs")
+        total_registros = self.cursor.fetchone()[0]
+
+        if total_registros < 2:
+            # Inserir se ainda não há registros suficientes
+            self.cursor.execute('''
+                INSERT INTO import_logs (file_type, file_path, import_date)
+                VALUES (?, ?, ?)
+            ''', (file_type, file_path, datetime.now().isoformat()))
+        else:
+            # Atualizar o registro correspondente
+            self.cursor.execute('''
+                UPDATE import_logs
+                SET file_path = ?, import_date = ?
+                WHERE file_type = ?
+            ''', (file_path, datetime.now().isoformat(), file_type))
+
+        self.conn.commit()
+
+    def obter_importacoes(self):
+        """Retorna os registros de importação existentes."""
+        self.cursor.execute('''
+            SELECT file_type, file_path, import_date
+            FROM import_logs
+        ''')
+        resultados = self.cursor.fetchall()
+
+        # Transforma a lista de tuplas em um dicionário
+        importacoes = {row[0]: {"file_path": row[1], "import_date": row[2]} for row in resultados}
+        return importacoes
     
     # Implementar metodos para importação de dados
     def _import_caixas_opticas(self, data):
@@ -387,12 +422,6 @@ class Database:
                     str(row.get('Data', '')) if pd.notna(row.get('Data')) else None,
                 ))
             
-            # Registrar importação
-            self.cursor.execute('''
-                INSERT INTO import_logs (file_type, file_path, import_date, records_imported)
-                VALUES (?, ?, ?, ?)
-            ''', ('campo', file_path, datetime.now().isoformat(), len(data)))
-
             # Limpar tabela survey
             self.cursor.execute("DELETE FROM survey")
             
@@ -408,106 +437,71 @@ class Database:
         self.cursor.execute("SELECT COUNT(*) FROM campo")
         return self.cursor.fetchone()[0]
         
-    def get_roteiro_by_cep(self, cep: str) -> Optional[Dict]:
-        """Retorna um roteiro pelo CEP (formato: 'XXXXXXXX')"""
-        if not cep or not cep.strip():
-            return None
-        
-        # Remover espaços e garantir que só tem números
-        cep_limpo = ''.join(c for c in cep if c.isdigit())
-        
-        if not cep_limpo:
-            return None
-        
-        # Busca exata pelo CEP
-        self.cursor.execute('''
-            SELECT * FROM roteiros 
-            WHERE cep = ?
-        ''', (cep_limpo,))
-        
-        result = self.cursor.fetchone()
-        
-        if result:
-            columns = [col[0] for col in self.cursor.description]
-            return dict(zip(columns, result))
-        
-        # Se não encontrou, tentar buscar pelos primeiros 5 dígitos
-        if len(cep_limpo) >= 5:
-            cep_prefixo = cep_limpo[:5]
-            self.cursor.execute('''
-                SELECT * FROM roteiros 
-                WHERE cep LIKE ?
-                LIMIT 1
-            ''', (f'{cep_prefixo}%',))
-            
-            result = self.cursor.fetchone()
-            if result:
-                columns = [col[0] for col in self.cursor.description]
-                return dict(zip(columns, result))
-        
-        return None
+    def carregar_roteiros_por_cep(self):
+        """Carrega todos os roteiros e os organiza por CEP."""
+        self.cursor.execute("SELECT * FROM roteiros")
+        colunas = [desc[0] for desc in self.cursor.description]
+        roteiros = self.cursor.fetchall()
+        return {
+            (str(r[colunas.index('cep')]).strip() if r[colunas.index('cep')] else ''): dict(zip(colunas, r))
+            for r in roteiros
+        }
             
     def import_and_validate_surveys(self, progress_callback=None):
-        """Importa e valida TODOS os dados de campo para a tabela survey com flags de divergência"""
+        """Importa e valida TODOS os dados de campo para a tabela survey com flags de divergência."""
         try:
-            # Limpar tabela survey antes de importar
-            self.cursor.execute("DELETE FROM survey")
+            self.conn.execute("BEGIN")  # Transação explícita
+            self.cursor.execute("DELETE FROM survey")  # Limpar dados anteriores
             
-            # Obter todos os registros de campo
+            # Carregar dados de campo
             self.cursor.execute("SELECT * FROM campo")
             campo_records = self.cursor.fetchall()
             campo_columns = [col[0] for col in self.cursor.description]
-            
+
+            # Carregar roteiros por CEP em memória
+            roteiros_por_cep = self.carregar_roteiros_por_cep()
+
             total_imported = 0
-            
+
             for record in campo_records:
                 campo_data = dict(zip(campo_columns, record))
-                
-                # Inicializar flags de validação com valores padrão
-                lograd_div = 0  # Assume divergente (2) como padrão
+
+                # Valores padrões
+                lograd_div = 0
                 bairro_div = 0
                 cep_div = 0
-                status = 3  # Assume não encontrado (3) como padrão
-                
-                # Buscar roteiro correspondente pelo CEP
-                roteiro = self.get_roteiro_by_cep(campo_data.get('cep', ''))
-                
+                status = 3
+
+                cep = (campo_data.get('cep') or '').strip()
+                roteiro = roteiros_por_cep.get(cep)
+
                 if roteiro:
                     # Validar CEP
-                    cep_campo = campo_data.get('cep', '').strip() if campo_data.get('cep') else ''
-                    cep_roteiro_raw = roteiro.get('cep')
-                    
-                    if cep_campo and cep_roteiro_raw:
-                        cep_roteiro = cep_roteiro_raw.strip()
-                        cep_div = 1 if cep_campo == cep_roteiro else 2
+                    cep_roteiro = (roteiro.get('cep') or '').strip()
+                    if cep and cep_roteiro:
+                        cep_div = 1 if cep == cep_roteiro else 2
 
                     if cep_div == 1:
-                        # Validar logradouro
                         logradouro_campo = self.normalize_text(campo_data.get('endereco_completo', ''))
-                        logradouro_roteiro_raw = roteiro.get('nome_lograd')
-                        if logradouro_campo and logradouro_roteiro_raw:
-                            logradouro_roteiro = self.normalize_text(logradouro_roteiro_raw)
+                        logradouro_roteiro = self.normalize_text(roteiro.get('nome_lograd', ''))
+                        if logradouro_campo and logradouro_roteiro:
                             lograd_div = 1 if logradouro_campo == logradouro_roteiro else 2
 
-                        # Validar bairro
                         bairro_campo = self.normalize_text(campo_data.get('bairro', ''))
-                        bairro_roteiro_raw = roteiro.get('bairro')
-                        if bairro_campo and bairro_roteiro_raw:
-                            bairro_roteiro = self.normalize_text(bairro_roteiro_raw)
+                        bairro_roteiro = self.normalize_text(roteiro.get('bairro', ''))
+                        if bairro_campo and bairro_roteiro:
                             bairro_div = 1 if bairro_campo == bairro_roteiro else 2
 
-                        # Definir status (apenas se cep válido)
+                        # Definir status
                         if lograd_div == 1 and bairro_div == 1:
-                            status = 1  # Tudo OK
-                        elif lograd_div in [1, 2] or bairro_div in [1, 2]:
-                            status = 2  # Alguma divergência
-
+                            status = 1
+                        else:
+                            status = 2
                     else:
-                        # Se o CEP não for encontrado, não faz sentido validar logradouro e bairro
                         lograd_div = 0
                         bairro_div = 0
 
-                # Preparar dados para inserção garantindo que todos os campos NOT NULL tenham valores
+                # Preparar dados para o insert
                 survey_data = {
                     'tipo_survey': 1,
                     'coordX': campo_data.get('latitude', ''),
@@ -522,7 +516,6 @@ class Database:
                     'cep_div': cep_div,
                     'data': campo_data.get('data', datetime.now().strftime('%Y-%m-%d')),
                     'observacoes': 'Importado automático',
-                    # Valores padrão para outros campos NOT NULL
                     'versao': '',
                     'autorizacao': '',
                     'gravado': False,
@@ -531,8 +524,7 @@ class Database:
                     'numPisos': 0,
                     'baixado': False
                 }
-                
-                # Adicionar informações do roteiro se existir
+
                 if roteiro:
                     survey_data.update({
                         'codigoZona': roteiro.get('codigo', ''),
@@ -544,17 +536,16 @@ class Database:
                         'cod_bairro': roteiro.get('cod_bairro', 0),
                         'tipo_lograd': roteiro.get('tipo_lograd', '')
                     })
-                
-                # Inserir survey
+
                 self.insert_survey(survey_data)
                 total_imported += 1
-                
+
                 if progress_callback:
                     progress_callback(total_imported)
-                
+
             self.conn.commit()
             return True, f"Importados e validados {total_imported} surveys (OK: {self.count_surveys_by_status(1)}, Divergentes: {self.count_surveys_by_status(2)}, Não encontrados: {self.count_surveys_by_status(3)})"
-            
+        
         except Exception as e:
             self.conn.rollback()
             return False, f"Erro na importação/validação: {str(e)}"

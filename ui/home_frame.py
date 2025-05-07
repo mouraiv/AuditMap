@@ -34,7 +34,7 @@ class HomeFrame(tk.Frame):
         body.grid(row=1, column=0, sticky='nsew')
         
         # Seção de importação
-        import_frame = tk.LabelFrame(body, text="Importar Bases", bg='#f0f0f0', padx=10, pady=10)
+        import_frame = tk.LabelFrame(body, text="Importar Bases", bg='#f0f0f0', font=('Helvetica', 10, 'bold'), padx=10, pady=10)
         import_frame.pack(fill='x', pady=(0, 20))
         
         # Matrix (XML)
@@ -43,18 +43,18 @@ class HomeFrame(tk.Frame):
         
         tk.Label(
             matrix_frame, text="Base Matrix (XML):", 
-            font=('Helvetica', 10), bg='#f0f0f0'
+            font=('Helvetica', 10, 'bold'), bg='#f0f0f0'
         ).pack(side='left', padx=(0, 10))
         
         self.matrix_path = tk.StringVar()
         tk.Entry(
             matrix_frame, textvariable=self.matrix_path, 
-            width=50, state='readonly'
+            width=50, state='readonly', font=('Helvetica', 10, 'bold')
         ).pack(side='left', expand=True, fill='x')
         
         tk.Button(
             matrix_frame, text="Selecionar Pasta", 
-            command=self.select_matrix_folder
+            command=self.select_matrix_folder, font=('Helvetica', 10, 'bold')
         ).pack(side='left', padx=(10, 0))
         
         # Campo (Excel)
@@ -63,24 +63,24 @@ class HomeFrame(tk.Frame):
         
         tk.Label(
             campo_frame, text="Base Campo (Excel):", 
-            font=('Helvetica', 10), bg='#f0f0f0'
+            font=('Helvetica', 10, 'bold'), bg='#f0f0f0'
         ).pack(side='left', padx=(0, 10))
         
         self.campo_path = tk.StringVar()
         tk.Entry(
             campo_frame, textvariable=self.campo_path, 
-            width=50, state='readonly'
+            width=50, state='readonly', font=('Helvetica', 10, 'bold')
         ).pack(side='left', expand=True, fill='x')
         
         tk.Button(
             campo_frame, text="Selecionar Arquivo", 
-            command=self.select_campo_file
+            command=self.select_campo_file, font=('Helvetica', 10, 'bold')
         ).pack(side='left', padx=(10, 0))
         
         # Botão de importar
         self.import_btn = tk.Button(
             import_frame, text="Importar Bases", 
-            command=self.start_import_thread, bg='#3498db', fg='white'
+            command=self.start_import_thread, bg='#3498db', fg='white', font=('Helvetica', 10, 'bold')
         )
         self.import_btn.pack(pady=(10, 0))
         
@@ -90,7 +90,7 @@ class HomeFrame(tk.Frame):
         self.import_progress_label = tk.Label(
             self.import_progress_frame, 
             text="",  # Texto será definido durante a operação
-            font=('Helvetica', 10), 
+            font=('Helvetica', 10, 'bold'), 
             bg='#f0f0f0'
         )
         self.import_progress_label.pack(pady=(0, 5))
@@ -103,19 +103,19 @@ class HomeFrame(tk.Frame):
         self.import_progress.pack(pady=(0, 5))
         
         # Seção de validação
-        self.validation_frame = tk.LabelFrame(body, text="Validação", bg='#f0f0f0', padx=10, pady=10)
+        self.validation_frame = tk.LabelFrame(body, text="Validação", bg='#f0f0f0', font=('Helvetica', 10, 'bold'), padx=10, pady=10)
         # Frame auxiliar para os botões
         button_container = tk.Frame(self.validation_frame, bg='#f0f0f0')
         button_container.pack(pady=(0, 10), anchor='center')  # Centraliza o frame
         
         self.validation_btn = tk.Button(
             button_container, text="Validar Endereços", 
-            command=self.start_validation_thread, state='disabled', bg='#2ecc71', fg='white'
+            command=self.start_validation_thread, state='disabled', bg='#2ecc71', fg='white', font=('Helvetica', 10, 'bold')
         )
 
         self.correct_btn = tk.Button(
-            button_container, text="Corrigir Divergências", 
-            command=self.correct_divergences, bg='#e74c3c', fg='white'
+            button_container, text="Resumo da validação", 
+            command=self.validation_show_frame, bg='#3498db', fg='white', font=('Helvetica', 10, 'bold')
         )
         
         # Progresso de validação (dentro da seção de validação)
@@ -124,7 +124,7 @@ class HomeFrame(tk.Frame):
         self.validation_progress_label = tk.Label(
             self.validation_progress_frame, 
             text="",  # Texto será definido durante a operação
-            font=('Helvetica', 10), 
+            font=('Helvetica', 10, 'bold'), 
             bg='#f0f0f0'
         )
         self.validation_progress_label.pack(pady=(0, 5))
@@ -146,8 +146,8 @@ class HomeFrame(tk.Frame):
 
         self.after_idle(self.check_existing_validated_data)
 
-    def correct_divergences(self):
-        self.controller.show_frame('CorrectionFrame')
+    def validation_show_frame(self):
+        self.controller.show_frame('ValidationFrame')
     
     def check_existing_validated_data(self):
         try:
@@ -157,7 +157,8 @@ class HomeFrame(tk.Frame):
             # Verificar se já existem dados validados
             total_registros = db.count_total_registros_survey()
 
-            print(f"Total de registros validados: {total_registros}")
+            # Recupera registros importados
+            registros_importados = db.obter_importacoes()
 
             # Obter estatísticas usando a mesma conexão
             stats = db.get_divergence_types()
@@ -171,7 +172,15 @@ class HomeFrame(tk.Frame):
                 self.validation_frame.pack(fill='x', pady=(0, 20))
                 self.validation_btn.pack(side='left', padx=5)
                 self.correct_btn.pack(side='left', padx=5)
-                
+
+                # Preencher entry com caminho recuperado matriz
+                if "Folder" in registros_importados:
+                    self.matrix_path.set(registros_importados["Folder"]["file_path"])
+
+                # Preencher entry com caminho recuperado campo excel
+                if "Excel (.xlsx)" in registros_importados:
+                    self.campo_path.set(registros_importados["Excel (.xlsx)"]["file_path"])
+
                 # Atualizar status na interface
                 self.status_label.config(
                     text=f"Validação concluída - OK: {stats['registros_ok']}, Divergentes: {stats['registros_divergentes']}, Não encontrados: {stats['nao_encontrado']}",
@@ -460,6 +469,10 @@ class HomeFrame(tk.Frame):
                 # Commit se tudo ocorrer bem
                 db.conn.commit()
                 self.after(0, self.on_import_complete, imported_files)
+
+                # Registrar a importação no banco de dados
+                db.registrar_importacao("Folder",matrix_folder)
+                db.registrar_importacao("Excel (.xlsx)",campo_file)
         
         except Exception as e:
             db.conn.rollback()
