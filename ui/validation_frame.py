@@ -106,13 +106,21 @@ class ValidationFrame(tk.Frame):
 
             divergente = {k: v for k, v in stats['divergencias'].items() if k != 'cep'}
 
+            # Dicionário de tradução/mapeamento dos tipos
+            div_type_names = {
+                'logradouro': 'Logradouro',
+                'bairro': 'Bairro',
+                'logradouro_bairro': 'Logradouro / Bairro',
+                'nao_encontrado': 'Não Encontrado'
+            }
+
             # Atualiza a treeview
             for item in self.tree.get_children():
                 self.tree.delete(item)
 
             for i, (div_type, count) in enumerate(divergente.items()):
                 tag = 'even' if i % 2 == 0 else 'odd'
-                self.tree.insert('', 'end', values=(div_type, count), tags=(tag,))
+                self.tree.insert('', 'end', values=(div_type_names[div_type], count), tags=(tag,))
 
             # Habilita botões conforme necessário
             self.export_btn.config(state='normal' if stats['total'] > 0 else 'disabled')

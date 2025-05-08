@@ -49,7 +49,7 @@ class HomeFrame(tk.Frame):
         self.matrix_path = tk.StringVar()
         tk.Entry(
             matrix_frame, textvariable=self.matrix_path, 
-            width=50, state='readonly', font=('Helvetica', 10, 'bold')
+            width=50, state='readonly', font=('Helvetica', 10)
         ).pack(side='left', expand=True, fill='x')
         
         tk.Button(
@@ -69,7 +69,7 @@ class HomeFrame(tk.Frame):
         self.campo_path = tk.StringVar()
         tk.Entry(
             campo_frame, textvariable=self.campo_path, 
-            width=50, state='readonly', font=('Helvetica', 10, 'bold')
+            width=50, state='readonly', font=('Helvetica', 10)
         ).pack(side='left', expand=True, fill='x')
         
         tk.Button(

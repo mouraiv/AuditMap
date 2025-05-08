@@ -15,6 +15,7 @@ class AddressValidator:
             'divergencias': {
                 'logradouro': divergencias['logradouro_div'],
                 'bairro': divergencias['bairro_div'],
+                'logradouro_bairro': divergencias['logradouro_bairro_div'],
                 'cep': divergencias['cep_div'],
                 'nao_encontrado': divergencias['nao_encontrado']
             }

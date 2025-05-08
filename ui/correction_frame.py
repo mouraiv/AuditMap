@@ -82,7 +82,6 @@ class CorrectionFrame(tk.Frame):
 
         for div_type in ['logradouro', 'bairro', 'logradouro_bairro', 'nao_encontrado']:
             btn_text = f"{div_type_names[div_type]} (0)"  # Usa o nome formatado do dicionário
-            print(f"{btn_text}")
             btn = tk.Label(
                 div_list_frame, 
                 text=btn_text,
@@ -343,28 +342,32 @@ class CorrectionFrame(tk.Frame):
             return
 
         addr = self.divergent_addresses[self.current_address_index]
+        print(f"Carregando endereço: {addr}")
 
-        def safe_insert(entry_widget, value, default=''):
+        def safe_insert(entry_widget, value, is_divergent=False, default=''):
             if entry_widget is None:
                 return
             entry_widget.delete(0, tk.END)
             entry_widget.insert(0, str(value) if value is not None else default)
+            # Muda a cor de fundo se for divergente
+            entry_widget.config(bg='#ffcccc' if is_divergent else 'white')
 
-        safe_insert(self.logradouro_entry, addr.get('logradouro'))
-        safe_insert(self.numero_entry, addr.get('numero_fachada'))
-        safe_insert(self.bairro_entry, addr.get('bairro'))
-        safe_insert(self.cep_entry, addr.get('cep'))
-        safe_insert(self.localidade_entry, addr.get('localidade'))
-        safe_insert(self.uf_entry, addr.get('uf'))
-        safe_insert(self.municipio_entry, addr.get('municipio'))
-        safe_insert(self.latitude_entry, addr.get('latitude'))
-        safe_insert(self.longitude_entry, addr.get('longitude'))
-        safe_insert(self.complemento1_entry, addr.get('complemento1'))
-        safe_insert(self.complemento2_entry, addr.get('complemento2'))
+        # Inserção com checagem de divergência
+        safe_insert(self.logradouro_entry, addr.get('logradouro'), addr.get('lograd_div') == 2)
+        safe_insert(self.numero_entry, addr.get('numero_fachada'))  # sem flag
+        safe_insert(self.bairro_entry, addr.get('bairro'), addr.get('bairro_div') == 2)
+        safe_insert(self.cep_entry, addr.get('cep'))  # sem flag
+        safe_insert(self.localidade_entry, addr.get('localidade'))  # sem flag
+        safe_insert(self.uf_entry, addr.get('uf_abrev'))  # sem flag
+        safe_insert(self.municipio_entry, addr.get('municipio'))  # sem flag
+        safe_insert(self.latitude_entry, addr.get('coordX'))  # sem flag
+        safe_insert(self.longitude_entry, addr.get('coordY'))  # sem flag
+        safe_insert(self.complemento1_entry, addr.get('complemento1'))  # sem flag
+        safe_insert(self.complemento2_entry, addr.get('complemento2'))  # sem flag
+
         self.moradia_var.set(addr.get('moradia', 0))
         self.edificio_var.set(addr.get('edificio', 0))
 
-        # Seleciona na Tree apenas se não foi a Tree que iniciou o evento
         if not from_tree:
             items = self.addresses_tree.get_children()
             if items and self.current_address_index < len(items):
@@ -419,6 +422,8 @@ class CorrectionFrame(tk.Frame):
                 updates['lograd_div'] = 1
             elif self.current_divergence_type == 'bairro':
                 updates['bairro_div'] = 1
+            elif self.current_divergence_type == 'logradouro_bairro':
+                updates['logradouro_bairro_div'] = 1
             elif self.current_divergence_type == 'nao_encontrado':
                 updates['status'] = 1  # Ensure status is set to OK
             

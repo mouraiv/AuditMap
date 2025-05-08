@@ -178,15 +178,21 @@ class Database:
                     coordY TEXT,
                     codigoZona TEXT,
                     nomeZona TEXT,
+                    uf_abrev TEXT,
                     localidade TEXT,
                     logradouro TEXT,
                     numero_fachada TEXT,
                     id_complemento1 INTEGER,
+                    complemento1 TEXT,
+                    id_complemento2 INTEGER,
+                    complemento2 TEXT,
                     argumento1 TEXT,
-                    id_complemento3 INTEGER, -- pode ser usado também pela UC
+                    id_complemento3 INTEGER,
                     cep TEXT,
                     cod_bairro INTEGER,
                     bairro TEXT,
+                    cod_municipio INTEGER,
+                    municipio TEXT,
                     id_roteiro INTEGER,
                     id_localidade INTEGER,
                     cod_lograd INTEGER,
@@ -468,6 +474,8 @@ class Database:
                     'coordY': campo_data.get('longitude', ''),
                     'logradouro': campo_data.get('endereco_completo', ''),
                     'numero_fachada': campo_data.get('numero_fachada', ''),
+                    'complemento1': campo_data.get('complemento', ''),
+                    'complemento2':  '',
                     'bairro': campo_data.get('bairro', ''),
                     'cep': campo_data.get('cep', ''),
                     'status': status,
@@ -490,6 +498,9 @@ class Database:
                         'codigoZona': roteiro.get('codigo', ''),
                         'nomeZona': roteiro.get('nome', ''),
                         'localidade': roteiro.get('localidade', ''),
+                        'uf_abrev': roteiro.get('uf_abrev', ''),
+                        'municipio': roteiro.get('municipio', ''),
+                        'cod_municipio': roteiro.get('cod_municipio', 0),
                         'id_roteiro': roteiro.get('id_roteiro', 0),
                         'id_localidade': roteiro.get('id_localidade', 0),
                         'cod_lograd': roteiro.get('cod_lograd', 0),
@@ -509,6 +520,11 @@ class Database:
         except Exception as e:
             self.conn.rollback()
             return False, f"Erro na importação/validação: {str(e)}"
+        
+    def get_registro_survey_por_id(self, survey_id):
+        """Retorna o registro do survey pelo ID"""
+        self.cursor.execute("SELECT * FROM survey WHERE id = %s", (survey_id,))
+        return self.cursor.fetchone()
         
     def count_total_registros_survey(self):
         """Conta surveys por status"""
@@ -757,14 +773,15 @@ class Database:
         self.cursor.execute('''
             INSERT INTO survey (
                 tipo_survey, versao, autorizacao, gravado, idCEMobile,
-                coordX, coordY, codigoZona, nomeZona, localidade,
-                logradouro, numero_fachada, id_complemento1, argumento1,
-                id_complemento3, cep, cod_bairro, bairro, id_roteiro,
+                coordX, coordY, codigoZona, nomeZona, uf_abrev, localidade,
+                logradouro, numero_fachada, id_complemento1, complemento1, 
+                id_complemento2, complemento2, argumento1,
+                id_complemento3, cep, cod_bairro, bairro, cod_municipio, municipio, id_roteiro,
                 id_localidade, cod_lograd, tecnico_id, tecnico_nome,
                 empresa_id, empresa_nome, data, observacoes, totalUCs,
                 numPisos, ocupacao, redeInterna, fotoExteriorEdificio,
                 fotoFachadaEdificio, status, lograd_div, bairro_div, cep_div, baixado
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             survey_data.get('tipo_survey'),
             survey_data.get('versao'),
@@ -775,15 +792,21 @@ class Database:
             survey_data.get('coordY'),
             survey_data.get('codigoZona'),
             survey_data.get('nomeZona'),
+            survey_data.get('uf_abrev'),
             survey_data.get('localidade'),
             survey_data.get('logradouro'),
             survey_data.get('numero_fachada'),
             survey_data.get('id_complemento1'),
+            survey_data.get('complemento1'),
+            survey_data.get('id_complemento2'),
+            survey_data.get('complemento2'),
             survey_data.get('argumento1'),
             survey_data.get('id_complemento3'),
             survey_data.get('cep'),
             survey_data.get('cod_bairro'),
             survey_data.get('bairro'),
+            survey_data.get('cod_municipio'),
+            survey_data.get('municipio'),
             survey_data.get('id_roteiro'),
             survey_data.get('id_localidade'),
             survey_data.get('cod_lograd'),
