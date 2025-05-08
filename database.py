@@ -265,36 +265,7 @@ class Database:
         # Transforma a lista de tuplas em um dicionário
         importacoes = {row[0]: {"file_path": row[1], "import_date": row[2]} for row in resultados}
         return importacoes
-    
-    # Implementar metodos para importação de dados
-    def _import_caixas_opticas(self, data):
-        self.cursor.execute("DELETE FROM caixas_opticas")  # Limpar tabela antes de importar
-        self.insert_caixas_opticas(data)
 
-    def _import_complementos(self, data):
-        self.cursor.execute("DELETE FROM complementos")  # Limpar tabela antes de importar
-        self.insert_complementos(data)
-
-    def _import_empresas(self, data):
-        self.cursor.execute("DELETE FROM empresas")  # Limpar tabela antes de importar
-        self.insert_empresas(data)
-
-    def _import_operadores(self, data):
-        self.cursor.execute("DELETE FROM operadores")  # Limpar tabela antes de importar
-        self.insert_operadores(data)
-
-    def _import_roteiros(self, data):
-        self.cursor.execute("DELETE FROM roteiros")  # Limpar tabela antes de importar
-        self.insert_roteiros(data)
-
-    def _import_tipos_imovel(self, data):
-        self.cursor.execute("DELETE FROM tipos_imovel")  # Limpar tabela antes de importar
-        self.insert_tipos_imovel(data)
-
-    def _import_zonas(self, data):
-        self.cursor.execute("DELETE FROM zonas")  # Limpar tabela antes de importar
-        self.insert_zonas(data)
-    
     def get_divergence_types(self):
         """Retorna os tipos de divergência entre tabela campo e survey com suas quantidades"""
         self.cursor.execute("""
@@ -303,8 +274,9 @@ class Database:
                 SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS registros_ok,
                 SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS registros_divergentes,
                 SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) AS nao_encontrado,
-                SUM(CASE WHEN lograd_div = 2 THEN 1 ELSE 0 END) AS logradouro_div,
-                SUM(CASE WHEN bairro_div = 2 THEN 1 ELSE 0 END) AS bairro_div,
+                SUM(CASE WHEN lograd_div = 2 AND bairro_div != 2 THEN 1 ELSE 0 END) AS logradouro_div,
+                SUM(CASE WHEN bairro_div = 2 AND lograd_div != 2 THEN 1 ELSE 0 END) AS bairro_div,
+                SUM(CASE WHEN bairro_div = 2 AND lograd_div = 2 THEN 1 ELSE 0 END) AS logradouro_bairro_div,            
                 SUM(CASE WHEN cep_div = 2 THEN 1 ELSE 0 END) AS cep_div
             FROM survey
         """)
@@ -319,7 +291,8 @@ class Database:
                 'nao_encontrado': result[3],
                 'logradouro_div': result[4],
                 'bairro_div': result[5],
-                'cep_div': result[6]
+                'logradouro_bairro_div': result[6],
+                'cep_div': result[7]
             }
         return {
             'total_registros': 0,
@@ -328,48 +301,35 @@ class Database:
             'nao_encontrado': 0,
             'logradouro_div': 0,
             'bairro_div': 0,
+            'logradouro_bairro_div': 0,
             'cep_div': 0
         }
-    
-    def get_surveys_by_status(self, status: int) -> List[Dict]:
-        """Retorna surveys por status (1=OK, 2=Divergente, 3=Não encontrado)"""
-        self.cursor.execute("SELECT * FROM survey WHERE status = ?", (status,))
-        columns = [col[0] for col in self.cursor.description]
-        return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
 
     def get_divergent_addresses(self, div_type: str) -> List[Dict]:
-        """Retorna surveys com um tipo específico de divergência"""
-        query = """
-            SELECT s.* FROM survey s
-            JOIN campo c ON s.logradouro = c.endereco_completo
-            WHERE s.status = 2 AND (
-        """
+        """Retorna surveys com um tipo específico de divergência. Ignora tipos não mapeados."""
+        base_query = "SELECT * FROM survey WHERE status = 2"
+        base_query_nao_encontrado = "SELECT * FROM survey WHERE status = 3"
         
         conditions = {
-            'logradouro': "(c.endereco_completo IS NULL OR TRIM(c.endereco_completo) = '' OR s.logradouro IS NULL OR TRIM(s.logradouro) = '' OR c.endereco_completo != s.logradouro)",
-            'bairro': "(c.bairro IS NULL OR TRIM(c.bairro) = '' OR s.bairro IS NULL OR TRIM(s.bairro) = '' OR c.bairro != s.bairro)",
-            'cep': "(c.cep IS NULL OR TRIM(c.cep) = '' OR s.cep IS NULL OR TRIM(s.cep) = '' OR c.cep != s.cep)",
-            'numero': "(c.numero_fachada IS NULL OR TRIM(c.numero_fachada) = '' OR s.numero_fachada IS NULL OR TRIM(s.numero_fachada) = '' OR c.numero_fachada != s.numero_fachada)"
+            'logradouro': "lograd_div = 2 and bairro_div != 2",
+            'bairro': "bairro_div = 2 and lograd_div != 2",
+            'logradouro_bairro': "lograd_div = 2 and bairro_div = 2"
         }
         
-        if div_type not in conditions:
-            return []
+        condition_sql = conditions.get(div_type.lower())
+        if condition_sql is None and div_type.lower() != 'nao_encontrado':
+            return []  # Retorna vazio se o tipo não for reconhecido
         
-        query += conditions[div_type] + ")"
-        
+        elif div_type.lower() == "nao_encontrado":
+            query = base_query_nao_encontrado
+            
+        else:
+            query = base_query 
+            query += f" AND ({condition_sql})"
+       
         self.cursor.execute(query)
         columns = [col[0] for col in self.cursor.description]
         return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
-
-    def update_address(self, address_id: int, updates: Dict):
-        """Atualiza os dados de um endereço no survey"""
-        set_clause = ', '.join([f"{key} = ?" for key in updates.keys()])
-        values = list(updates.values())
-        values.append(address_id)
-        
-        query = f"UPDATE survey SET {set_clause} WHERE id = ?"
-        self.cursor.execute(query, values)
-        self.conn.commit()
     
     def expand_complemento(self, value):
         if pd.isna(value):
@@ -575,6 +535,8 @@ class Database:
     # Métodos para caixas ópticas
     def insert_caixas_opticas(self, caixas: List[Dict]):
         """Insere múltiplas caixas ópticas na tabela"""
+        self.cursor.execute("DELETE FROM caixas_opticas")  # Limpar dados anteriores
+
         for caixa in caixas:
             self.cursor.execute('''
                 INSERT INTO caixas_opticas (
@@ -597,6 +559,8 @@ class Database:
     # Métodos para complementos
     def insert_complementos(self, complementos: List[Dict]):
         """Insere múltiplos complementos na tabela"""
+        self.cursor.execute("DELETE FROM complementos")  # Limpar dados anteriores
+
         for comp in complementos:
             self.cursor.execute('''
                 INSERT INTO complementos (
@@ -623,6 +587,9 @@ class Database:
     # Métodos para empresas e técnicos
     def insert_empresas(self, empresas: List[Dict]):
         """Insere múltiplas empresas e seus técnicos"""
+        self.cursor.execute("DELETE FROM empresas")  # Limpar dados anteriores
+        self.cursor.execute("DELETE FROM tecnicos")  # Limpar dados anteriores
+
         for emp in empresas:
             # Inserir empresa
             self.cursor.execute('''
@@ -672,6 +639,8 @@ class Database:
     # Métodos para operadores
     def insert_operadores(self, operadores: List[Dict]):
         """Insere múltiplos operadores na tabela"""
+        self.cursor.execute("DELETE FROM operadores")  # Limpar dados anteriores
+
         for op in operadores:
             self.cursor.execute('''
                 INSERT INTO operadores (id_operador, nome_operador)
@@ -688,6 +657,8 @@ class Database:
     # Métodos para roteiros
     def insert_roteiros(self, roteiros: List[Dict]):
         """Insere múltiplos roteiros na tabela"""
+        self.cursor.execute("DELETE FROM roteiros")  # Limpar dados anteriores
+
         for rot in roteiros:
             self.cursor.execute('''
                 INSERT INTO roteiros (
@@ -713,22 +684,11 @@ class Database:
         columns = [col[0] for col in self.cursor.description]
         return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
     
-    def get_roteiro_by_cep(self, cep: str) -> Optional[Dict]:
-        """Retorna um roteiro pelo CEP"""
-        self.cursor.execute('''
-            SELECT * FROM roteiros 
-            WHERE cep = ?
-        ''', (cep,))
-        
-        result = self.cursor.fetchone()
-        if result:
-            columns = [col[0] for col in self.cursor.description]
-            return dict(zip(columns, result))
-        return None
-    
     # Métodos para tipos de imóvel
     def insert_tipos_imovel(self, tipos: List[Dict]):
         """Insere múltiplos tipos de imóvel na tabela"""
+        self.cursor.execute("DELETE FROM tipos_imovel")  # Limpar dados anteriores
+
         for tipo in tipos:
             self.cursor.execute('''
                 INSERT INTO tipos_imovel (
@@ -749,6 +709,8 @@ class Database:
     # Métodos para zonas
     def insert_zonas(self, zonas: List[Dict]):
         """Insere múltiplas zonas na tabela"""
+        self.cursor.execute("DELETE FROM zonas")  # Limpar dados anteriores
+
         for zona in zonas:
             self.cursor.execute('''
                 INSERT INTO zonas (codigo, nome)
@@ -765,6 +727,8 @@ class Database:
     # Métodos para dados de campo
     def insert_campo_data(self, records: List[Dict]):
         """Insere múltiplos registros de campo na tabela"""
+        self.cursor.execute("DELETE FROM campo")  # Limpar dados anteriores
+
         for rec in records:
             self.cursor.execute('''
                 INSERT INTO campo (
@@ -845,6 +809,8 @@ class Database:
 
     def insert_uc(self, survey_id: int, uc_data: Dict):
         """Insere um registro de UC relacionado a um survey"""
+        self.cursor.execute("DELETE FROM uc")  # Limpar dados anteriores
+
         self.cursor.execute('''
             INSERT INTO uc (
                 survey_id, destinacao, id_complemento3, argumento3,
@@ -875,13 +841,6 @@ class Database:
             WHERE id = ?
         ''', (status, survey_id))
         self.conn.commit()
-    
-    # Métodos para logs de importação
-    def get_import_logs(self) -> List[Dict]:
-        """Retorna todos os logs de importação"""
-        self.cursor.execute("SELECT * FROM import_logs ORDER BY import_date DESC")
-        columns = [col[0] for col in self.cursor.description]
-        return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
     
     def close(self):
         """Fecha a conexão com o banco de dados"""

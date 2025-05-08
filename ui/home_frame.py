@@ -114,7 +114,7 @@ class HomeFrame(tk.Frame):
         )
 
         self.correct_btn = tk.Button(
-            button_container, text="Resumo da validação", 
+            button_container, text="Resultado da validação", 
             command=self.validation_show_frame, bg='#3498db', fg='white', font=('Helvetica', 10, 'bold')
         )
         
@@ -513,7 +513,6 @@ class HomeFrame(tk.Frame):
             # Verificar se a coluna de endereço existe
             endereco_col = 'Weblink: Endereço completo'
             if endereco_col not in df.columns:
-                print(f"\nColunas disponíveis no arquivo: {df.columns.tolist()}")
                 raise ValueError(f"Coluna de endereço ('{endereco_col}') não encontrada")
             
             def corrigir_codificacao(texto):
@@ -599,8 +598,6 @@ class HomeFrame(tk.Frame):
 
             # Converter para lista de dicionários
             data = df.to_dict('records')
-
-            print("\nExemplo de registro processado:")
 
             if data[0]: 
                 data

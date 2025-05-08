@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from ui.home_frame import HomeFrame
-from ui.import_frame import ImportFrame
 from ui.validation_frame import ValidationFrame
 from ui.correction_frame import CorrectionFrame
 from database import Database
@@ -12,7 +11,8 @@ class AuditMapApp(tk.Tk):
         
         # Configurações básicas da janela principal
         self.title("AuditMap - Verificação Inteligente de Endereços")
-        self.geometry("1024x768")
+        self.geometry("1024x650")
+        self.minsize(1024, 650)  # Define o tamanho mínimo da janela
         self.resizable(True, True)
         
         # Configuração do banco de dados
@@ -21,7 +21,6 @@ class AuditMapApp(tk.Tk):
         
         # Definição de constantes para os nomes dos frames
         self.HOME_FRAME = 'HomeFrame'
-        self.IMPORT_FRAME = 'ImportFrame'
         self.VALIDATION_FRAME = 'ValidationFrame'
         self.CORRECTION_FRAME = 'CorrectionFrame'
         
@@ -50,7 +49,6 @@ class AuditMapApp(tk.Tk):
         """Cria e registra todos os frames da aplicação"""
         frames = {
             self.HOME_FRAME: HomeFrame,
-            self.IMPORT_FRAME: ImportFrame,
             self.VALIDATION_FRAME: ValidationFrame,
             self.CORRECTION_FRAME: CorrectionFrame
         }

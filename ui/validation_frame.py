@@ -16,7 +16,7 @@ class ValidationFrame(tk.Frame):
         header.grid(row=0, column=0, sticky='ew')
         
         tk.Label(
-            header, text="Resultados da Validação", 
+            header, text="AuditMap - Resultados da Validação", 
             font=('Helvetica', 16, 'bold'), 
             fg='white', bg='#2c3e50'
         ).pack(side='left')
@@ -30,13 +30,13 @@ class ValidationFrame(tk.Frame):
         summary_frame.pack(fill='x', pady=(0, 20))
         
         self.total_label = tk.Label(
-            summary_frame, text="Total de endereços: 0", 
+            summary_frame, text="Total de surveys: 0", 
             font=('Helvetica', 10, 'bold'), bg='#f0f0f0'
         )
         self.total_label.pack(anchor='w')
         
         self.ok_label = tk.Label(
-            summary_frame, text="Endereços OK: 0", 
+            summary_frame, text="Surveys OK: 0", 
             font=('Helvetica', 10, 'bold'), bg='#f0f0f0', fg='green'
         )
         self.ok_label.pack(anchor='w')
@@ -67,7 +67,6 @@ class ValidationFrame(tk.Frame):
         # Cores alternadas e destaque para quantidade > 0
         self.tree.tag_configure('even', background='#f0f0f0')
         self.tree.tag_configure('odd', background='white')
-        self.tree.tag_configure('positive', foreground='red')
         
         # Botões de ação
         btn_frame = tk.Frame(body, bg='#f0f0f0')
@@ -104,16 +103,16 @@ class ValidationFrame(tk.Frame):
             self.total_label.config(text=f"Total de surveys: {stats['total']}")
             self.ok_label.config(text=f"Surveys OK: {stats['ok']}")
             self.div_label.config(text=f"Surveys com divergência: {stats['total'] - stats['ok']}")
-            
+
+            divergente = {k: v for k, v in stats['divergencias'].items() if k != 'cep'}
+
             # Atualiza a treeview
             for item in self.tree.get_children():
                 self.tree.delete(item)
 
-            for i, (div_type, count) in enumerate(stats['divergencias'].items()):
-                tags = ['even' if i % 2 == 0 else 'odd']
-                if count > 0:
-                    tags.append('positive')
-                self.tree.insert('', 'end', values=(div_type.capitalize(), count), tags=tags)
+            for i, (div_type, count) in enumerate(divergente.items()):
+                tag = 'even' if i % 2 == 0 else 'odd'
+                self.tree.insert('', 'end', values=(div_type, count), tags=(tag,))
 
             # Habilita botões conforme necessário
             self.export_btn.config(state='normal' if stats['total'] > 0 else 'disabled')
