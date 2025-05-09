@@ -101,6 +101,45 @@ class HomeFrame(tk.Frame):
             length=300
         )
         self.import_progress.pack(pady=(0, 5))
+
+        # Nova seção para Técnico Responsável
+        self.tecnico_frame = tk.LabelFrame(body, text="Técnico Responsável", bg='#f0f0f0', font=('Helvetica', 10, 'bold'), padx=10, pady=10)
+        #self.tecnico_frame.pack(fill='x', pady=(0, 20))
+
+        # Frame para os combobox
+        combobox_frame = tk.Frame(self.tecnico_frame, bg='#f0f0f0')
+        combobox_frame.pack(pady=5)
+
+        # Variáveis para armazenar as seleções
+        self.selected_tecnico = tk.StringVar()
+        self.selected_empresa = tk.StringVar()
+
+        # Combobox de Técnico
+        self.tecnicos_cb = ttk.Combobox(
+            combobox_frame, 
+            textvariable=self.selected_tecnico,
+            font=('Helvetica', 9),
+            state='readonly',
+            width=30
+        )
+        self.tecnicos_cb.grid(row=0, column=0, padx=(0, 10))
+
+        # Combobox de Empresa
+        self.empresas_cb = ttk.Combobox(
+            combobox_frame, 
+            textvariable=self.selected_empresa,
+            font=('Helvetica', 9),
+            state='readonly',
+            width=30
+        )
+        self.empresas_cb.grid(row=0, column=1)
+
+        # Configurar os eventos de seleção
+        self.tecnicos_cb.bind('<<ComboboxSelected>>', self.on_tecnico_selected)
+        self.empresas_cb.bind('<<ComboboxSelected>>', self.on_empresa_selected)
+
+        # Atualizar os combobox com os dados do banco
+        self.update_comboboxes()
         
         # Seção de validação
         self.validation_frame = tk.LabelFrame(body, text="Validação", bg='#f0f0f0', font=('Helvetica', 10, 'bold'), padx=10, pady=10)
@@ -148,7 +187,13 @@ class HomeFrame(tk.Frame):
 
     def validation_show_frame(self):
         self.controller.show_frame('ValidationFrame')
-    
+
+    def get_selecao_atual(self):
+        """Retorna o técnico e a empresa atualmente selecionados"""
+        tecnico_nome = self.selected_tecnico.get()
+        empresa_nome = self.selected_empresa.get()
+        return tecnico_nome, empresa_nome
+
     def check_existing_validated_data(self):
         try:
             db = Database()
@@ -156,6 +201,9 @@ class HomeFrame(tk.Frame):
 
             # Verificar se já existem dados validados
             total_registros = db.count_total_registros_survey()
+
+            # Obter último técnico e empresa
+            ultimo = db.get_tecnico_empresa_surveys()
 
             # Recupera registros importados
             registros_importados = db.obter_importacoes()
@@ -166,12 +214,20 @@ class HomeFrame(tk.Frame):
             db.close()
 
             if total_registros > 0:
+                self.tecnico_frame.pack(fill='x', pady=(0, 20))
                 self.validation_btn.config(text="Revalidar Endereços")
                 self.validation_btn.config(state='normal')
                 self.has_validated_data = True
                 self.validation_frame.pack(fill='x', pady=(0, 20))
                 self.validation_btn.pack(side='left', padx=5)
                 self.correct_btn.pack(side='left', padx=5)
+
+                if ultimo:
+                    #Selecionar último técnico
+                    self.selected_tecnico.set(ultimo['tecnico_nome'])
+
+                    # Forçar atualização dos comboboxes
+                    self.on_tecnico_selected()
 
                 # Preencher entry com caminho recuperado matriz
                 if "Folder" in registros_importados:
@@ -197,6 +253,107 @@ class HomeFrame(tk.Frame):
             print(f"Erro ao verificar registros validados: {e}")
             self.has_validated_data = False
 
+    def update_comboboxes(self):
+        """Atualiza os comboboxes com dados do banco"""
+        empresas = self.controller.db.get_empresas()
+        
+        # Lista de todos os técnicos
+        tecnicos = []
+        for emp in empresas:
+            tecnicos.extend([(tec['nome_tecnico'], emp['nome_empresa']) for tec in emp['tecnicos']])
+        
+        # Remove duplicados mantendo a ordem
+        unique_tecnicos = []
+        seen = set()
+        for nome, empresa in tecnicos:
+            if nome not in seen:
+                seen.add(nome)
+                unique_tecnicos.append(nome)
+        
+        # Adiciona valor padrão em maiúsculo
+        unique_tecnicos.insert(0, "TÉCNICO")
+        
+        self.tecnicos_cb['values'] = unique_tecnicos
+        if unique_tecnicos:
+            self.tecnicos_cb.current(0)
+            # Força a atualização do combobox de empresas
+            self.empresas_cb['values'] = ["EMPRESA"]
+            self.empresas_cb.current(0)
+
+    def on_tecnico_selected(self, event=None):
+        """Atualiza empresas quando um técnico é selecionado"""
+        tecnico_nome = self.selected_tecnico.get()
+        empresas = self.controller.db.get_empresas()
+        
+        if tecnico_nome == "TÉCNICO":
+            # Restaura todas as empresas disponíveis
+            todas_empresas = [emp['nome_empresa'] for emp in empresas]
+            todas_empresas.insert(0, "EMPRESA")
+            self.empresas_cb['values'] = todas_empresas
+            self.empresas_cb.current(0)
+            self.status_label.pack_forget()
+            self.validation_frame.pack_forget()
+            return
+        else:
+            # Mostra o frame quando um técnico válido é selecionado
+            self.validation_frame.pack(fill='x')
+            self.status_label.pack(pady=(20, 0))
+
+        # Encontra empresas associadas ao técnico selecionado
+        empresas_do_tecnico = []
+        empresa_selecionada = None
+        for emp in empresas:
+            for tec in emp['tecnicos']:
+                if tec['nome_tecnico'] == tecnico_nome:
+                    empresa_selecionada = emp['nome_empresa']
+                    empresas_do_tecnico.append(emp['nome_empresa'])
+                    break
+
+        # Adiciona o valor padrão "EMPRESA" no início
+        empresas_do_tecnico.insert(0, "EMPRESA")
+        
+        self.empresas_cb['values'] = empresas_do_tecnico
+
+        # Seleciona automaticamente a empresa do técnico, se encontrada
+        if empresa_selecionada:
+            self.empresas_cb.set(empresa_selecionada)
+        else:
+            self.empresas_cb.current(0)
+
+    def on_empresa_selected(self, event=None):
+        """Atualiza técnicos quando uma empresa é selecionada"""
+        empresa_nome = self.selected_empresa.get()
+        empresas = self.controller.db.get_empresas()
+        
+        if empresa_nome == "EMPRESA":
+            # Restaura todos os técnicos disponíveis
+            todos_tecnicos = []
+            seen = set()
+            for emp in empresas:
+                for tec in emp['tecnicos']:
+                    if tec['nome_tecnico'] not in seen:
+                        seen.add(tec['nome_tecnico'])
+                        todos_tecnicos.append(tec['nome_tecnico'])
+            todos_tecnicos.insert(0, "TÉCNICO")
+            self.tecnicos_cb['values'] = todos_tecnicos
+            self.tecnicos_cb.current(0)
+            self.status_label.pack_forget()
+            self.validation_frame.pack_forget()
+            return
+            
+        # Encontra técnicos associados à empresa selecionada
+        tecnicos_da_empresa = []
+        for emp in empresas:
+            if emp['nome_empresa'] == empresa_nome:
+                tecnicos_da_empresa = [tec['nome_tecnico'] for tec in emp['tecnicos']]
+                break
+        
+        # Adiciona valor padrão "TÉCNICO" no início
+        tecnicos_da_empresa.insert(0, "TÉCNICO")
+        
+        self.tecnicos_cb['values'] = tecnicos_da_empresa
+        self.tecnicos_cb.current(0)
+
     def update_progress_bar(self, current, total):
         percent = int((current / total) * 100)
         self.validation_progress['value'] = percent
@@ -205,6 +362,18 @@ class HomeFrame(tk.Frame):
 
     def show_import_progress(self, message):
         """Mostra o indicador de progresso de importação"""
+        #Desabilitar frame tecnico responsavel e validação
+        self.status_label.pack_forget()
+        self.validation_frame.pack_forget()
+        self.tecnico_frame.pack_forget()
+
+        #Selecionar último técnico
+        self.selected_tecnico.set('TÉCNICO')
+
+        # Forçar atualização dos comboboxes
+        self.on_tecnico_selected()
+
+        #ITERAR PROGRESS BAR
         self.import_progress_label.config(text=message)
         self.import_progress_frame.pack(fill='x', pady=(10, 0))
         self.import_progress.start()
@@ -312,10 +481,13 @@ class HomeFrame(tk.Frame):
             total_registros = db.count_total_registros_campo()
 
             # Passe a função de callback corretamente
-            progress_callback = lambda current: self.update_progress_bar(current, total_registros) 
-            
+            progress_callback = lambda current: self.update_progress_bar(current, total_registros)
+
+            #Armazenar o nome do técnico
+            tecnico_nome = self.get_selecao_atual()[0]
+
             # Chamar a função de validação usando a nova conexão
-            success, message = db.import_and_validate_surveys(progress_callback=progress_callback)
+            success, message = db.import_and_validate_surveys(tecnico_nome ,progress_callback=progress_callback)
             
             # Obter estatísticas usando a mesma conexão
             stats = db.get_divergence_types()
@@ -488,6 +660,7 @@ class HomeFrame(tk.Frame):
             f"Todas as bases foram importadas com sucesso!\n\n"
             f"Arquivos processados:\n{', '.join(imported_files)}"
         )
+        self.tecnico_frame.pack(fill='x', pady=(0, 20))
         self.status_label.config(text="Bases prontas para validação", fg='#27ae60')
         self.validation_btn.config(text="Validar Endereços")
         self.validation_btn.config(state='normal')
@@ -600,10 +773,7 @@ class HomeFrame(tk.Frame):
             data = df.to_dict('records')
 
             if data[0]: 
-                data
-                #Exibir área de validação
-                self.validation_frame.pack(fill='x')
-                self.status_label.pack(pady=(20, 0)) 
+                data 
             else:
                 self.status_label.config(text="Nenhum dado encontrado", fg='#7f8c8d')
                 

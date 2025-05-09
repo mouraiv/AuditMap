@@ -412,12 +412,37 @@ class Database:
             (str(r[colunas.index('cep')]).strip() if r[colunas.index('cep')] else ''): dict(zip(colunas, r))
             for r in roteiros
         }
+    
+    def get_empresa_por_tecnico(self, nome_tecnico: str) -> Optional[Dict]:
+        """Retorna a empresa que possui o técnico com o nome especificado"""
+        self.cursor.execute('''
+            SELECT e.id, e.id_empresa, e.nome_empresa, t.id_tecnico, t.nome_tecnico
+            FROM empresas e
+            JOIN tecnicos t ON e.id_empresa = t.id_empresa
+            WHERE t.nome_tecnico = ?
+        ''', (nome_tecnico,))
+        
+        row = self.cursor.fetchone()
+        if row:
+            return {
+                'id': row[0],
+                'id_empresa': row[1],
+                'nome_empresa': row[2],
+                'tecnico': {
+                    'id_tecnico': row[3],
+                    'nome_tecnico': row[4]
+                }
+            }
+        return None
             
-    def import_and_validate_surveys(self, progress_callback=None):
+    def import_and_validate_surveys(self, tecnico_nome, progress_callback=None):
         """Importa e valida TODOS os dados de campo para a tabela survey com flags de divergência."""
         try:
             self.conn.execute("BEGIN")  # Transação explícita
             self.cursor.execute("DELETE FROM survey")  # Limpar dados anteriores
+
+            #Recupera informações técnico/empresa
+            tecnico = self.get_empresa_por_tecnico(tecnico_nome)
             
             # Carregar dados de campo
             self.cursor.execute("SELECT * FROM campo")
@@ -473,6 +498,10 @@ class Database:
                     'coordX': campo_data.get('latitude', ''),
                     'coordY': campo_data.get('longitude', ''),
                     'logradouro': campo_data.get('endereco_completo', ''),
+                    'tecnico_id': tecnico["tecnico"]["id_tecnico"],
+                    'tecnico_nome': tecnico["tecnico"]["nome_tecnico"],
+                    'empresa_id': tecnico["id_empresa"],
+                    'empresa_nome': tecnico["nome_empresa"], 
                     'numero_fachada': campo_data.get('numero_fachada', ''),
                     'complemento1': campo_data.get('complemento', ''),
                     'complemento2':  '',
@@ -600,7 +629,6 @@ class Database:
         columns = [col[0] for col in self.cursor.description]
         return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
     
-    # Métodos para empresas e técnicos
     def insert_empresas(self, empresas: List[Dict]):
         """Insere múltiplas empresas e seus técnicos"""
         self.cursor.execute("DELETE FROM empresas")  # Limpar dados anteriores
@@ -613,7 +641,8 @@ class Database:
                 VALUES (?, ?)
             ''', (emp['id_empresa'], emp['nome_empresa']))
             
-            empresa_id = self.cursor.lastrowid
+            # Usar o id_empresa fornecido no dicionário, não o lastrowid
+            empresa_id = emp['id_empresa']
             
             # Inserir técnicos
             for tec in emp.get('tecnicos', []):
@@ -640,7 +669,7 @@ class Database:
                 SELECT id_tecnico, nome_tecnico 
                 FROM tecnicos 
                 WHERE id_empresa = ?
-            ''', (empresa['id'],))
+            ''', (empresa['id_empresa'],))
             
             for tec in self.cursor.fetchall():
                 empresa['tecnicos'].append({
@@ -849,6 +878,19 @@ class Database:
             uc_data.get('argumento4_real')
         ))
         self.conn.commit()
+
+    def get_tecnico_empresa_surveys(self) -> Optional[Dict]:
+        """Retorna o último técnico e empresa que validaram surveys"""
+        self.cursor.execute("""
+            SELECT tecnico_nome, empresa_nome 
+            FROM survey 
+            ORDER BY id DESC 
+            LIMIT 1
+        """)
+        row = self.cursor.fetchone()
+        if row:
+            return {"tecnico_nome": row[0], "empresa_nome": row[1]}
+        return None
 
     def get_all_surveys(self) -> List[Dict]:
         """Retorna todos os surveys"""

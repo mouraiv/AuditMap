@@ -22,30 +22,67 @@ class ValidationFrame(tk.Frame):
         ).pack(side='left')
         
         # Corpo principal
-        body = tk.Frame(self, bg='#f0f0f0', padx=20, pady=20)
+        body = tk.Frame(self, bg='#f0f0f0', padx=20, pady=5)
         body.grid(row=1, column=0, sticky='nsew')
+
+        # header info (tecnico)
+        header_info_frame = tk.Frame(body, bg='#f0f0f0')
+        header_info_frame.pack(fill='x', pady=(0, 5))
+
+        header_info_frame.grid_columnconfigure(0, weight=1)
+        header_info_frame.grid_columnconfigure(1, weight=1)
+        header_info_frame.grid_columnconfigure(2, weight=0)
+
+        self.voltar = tk.Label(
+            header_info_frame, text="<< Voltar", 
+            font=('Helvetica', 10, 'bold'), bg='#f0f0f0', fg='blue'
+        )
+        self.voltar.grid(row=0, column=0, sticky='w', padx=(0, 20))
+
+        # Evento de clique
+        self.voltar.bind("<Button-1>", lambda e: self.controller.show_frame('HomeFrame'))
+
+        # Efeitos visuais opcionais
+        self.voltar.bind("<Enter>", lambda e: self.voltar.config(font=('Helvetica', 10, 'bold', 'underline')))
+        self.voltar.bind("<Leave>", lambda e: self.voltar.config(font=('Helvetica', 10, 'bold')))
+
+        self.tecnico = tk.Label(
+            header_info_frame, text="[ Técnico: -- ]", 
+            font=('Helvetica', 9, 'bold'), bg='#f0f0f0'
+        )
+        self.tecnico.grid(row=0, column=1, sticky='e', padx=(0, 20))
+
+        self.empresa = tk.Label(
+            header_info_frame, text="[ Empresa: -- ]", 
+            font=('Helvetica', 9, 'bold'), bg='#f0f0f0'
+        )
+        self.empresa.grid(row=0, column=2, sticky='w', padx=(0, 20))
+
+        # Top panel (summary)
+        top_frame = tk.Frame(body, bg='#f0f0f0')
+        top_frame.pack(fill='x', pady=(0, 10))
         
         # Resumo da validação
-        summary_frame = tk.LabelFrame(body, text="Resumo", font=('Helvetica', 10, 'bold'), bg='#f0f0f0', padx=10, pady=10)
-        summary_frame.pack(fill='x', pady=(0, 20))
+        summary_frame = tk.LabelFrame(top_frame, text="Resumo", font=('Helvetica', 10, 'bold'), bg='#f0f0f0', padx=10, pady=10)
+        summary_frame.pack(fill='x', pady=(0, 10))
         
         self.total_label = tk.Label(
             summary_frame, text="Total de surveys: 0", 
             font=('Helvetica', 10, 'bold'), bg='#f0f0f0'
         )
-        self.total_label.pack(anchor='w')
+        self.total_label.grid(row=0, column=0, sticky='w', padx=(0, 20))
         
         self.ok_label = tk.Label(
             summary_frame, text="Surveys OK: 0", 
             font=('Helvetica', 10, 'bold'), bg='#f0f0f0', fg='green'
         )
-        self.ok_label.pack(anchor='w')
+        self.ok_label.grid(row=0, column=1, sticky='w', padx=(0, 20))
         
         self.div_label = tk.Label(
             summary_frame, text="Endereços com divergência: 0", 
             font=('Helvetica', 10, 'bold'), bg='#f0f0f0', fg='red'
         )
-        self.div_label.pack(anchor='w')
+        self.div_label.grid(row=0, column=2, sticky='w')
         
         # Divergências detalhadas
         div_frame = tk.LabelFrame(body, text="Divergências Detalhadas", font=('Helvetica', 10, 'bold'), bg='#f0f0f0', padx=10, pady=10)
@@ -84,11 +121,17 @@ class ValidationFrame(tk.Frame):
         )
         self.correct_btn.pack(side='left')
         
-        back_btn = tk.Button(
-            btn_frame, text="Voltar", 
-            command=lambda: controller.show_frame('HomeFrame'), font=('Helvetica', 10, 'bold')
-        )
-        back_btn.pack(side='right')
+    def get_tecnico_atual(self):
+        info_tecnico = self.controller.db.get_tecnico_empresa_surveys()
+
+        if not info_tecnico or len(info_tecnico) < 2:
+            return None, None
+        
+        tecnico_nome = info_tecnico.get('tecnico_nome', '--')
+        empresa_nome = info_tecnico.get('empresa_nome', '--')
+
+        self.tecnico.config(text=f"[ Técnico: {tecnico_nome} ]")
+        self.empresa.config(text=f"[ Empresa: {empresa_nome} ]")
     
     def correct_divergences(self):
         self.controller.show_frame('CorrectionFrame')
@@ -96,6 +139,8 @@ class ValidationFrame(tk.Frame):
     def update_data(self):
         """Busca dados reais do banco e atualiza a interface"""
         try:
+            self.get_tecnico_atual()
+
             validator = AddressValidator(self.controller.db)
             stats = validator.validate_all_surveys()
             
