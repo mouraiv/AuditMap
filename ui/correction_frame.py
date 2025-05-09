@@ -76,20 +76,26 @@ class CorrectionFrame(tk.Frame):
         summary_frame.grid(row=0, column=0, columnspan=2, sticky='nsew')  # Ocupa as duas colunas
 
         summary_frame.grid_columnconfigure(0, weight=0)
-        summary_frame.grid_columnconfigure(1, weight=1)
-        summary_frame.grid_columnconfigure(2, weight=0)
+        summary_frame.grid_columnconfigure(1, weight=0)
+        summary_frame.grid_columnconfigure(2, weight=1)
 
         self.total_div_label = tk.Label(
-            summary_frame, text="Total de divergências: 0",
+            summary_frame, text="Total de surveys: 0",
             font=('Helvetica', 10, 'bold'), bg='#f0f0f0'
         )
         self.total_div_label.grid(row=0, column=0, sticky='w')
 
         self.total_ok_label = tk.Label(
-            summary_frame, text="Endereços OK: 0",
+            summary_frame, text="Surveys OK: 0",
             font=('Helvetica', 10, 'bold'), bg='#f0f0f0', fg='green'
         )
         self.total_ok_label.grid(row=0, column=1, sticky='w', padx=(20, 0))
+
+        self.div_label = tk.Label(
+            summary_frame, text="Surveys com divergência: 0", 
+            font=('Helvetica', 10, 'bold'), bg='#f0f0f0', fg='red'
+        )
+        self.div_label.grid(row=0, column=2, sticky='w', padx=(20, 0))
 
         self.export_btn = tk.Button(
             summary_frame, text="Exportar Survey OK",
@@ -97,7 +103,7 @@ class CorrectionFrame(tk.Frame):
             command=self.export_valid_surveys,
             pady=2
         )
-        self.export_btn.grid(row=0, column=2, sticky='e', padx=(20, 0))
+        self.export_btn.grid(row=0, column=3, sticky='e', padx=(20, 0))
 
         # Divergence list
         div_list_frame = tk.LabelFrame(body, text="Tipos de Divergência", bg='#f0f0f0', font=('Helvetica', 10, 'bold'), padx=10, pady=10)
@@ -292,8 +298,9 @@ class CorrectionFrame(tk.Frame):
                     stats.get('logradouro_bairro_div', 0) +  
                     stats.get('nao_encontrado', 0))
             
-            self.total_div_label.config(text=f"Total de divergências: {total_div}")
-            self.total_ok_label.config(text=f"Endereços OK: {stats.get('registros_ok', 0)}")
+            self.total_div_label.config(text=f"Total de surveys: {stats.get('total_registros', 0)}")
+            self.total_ok_label.config(text=f"Surveys OK: {stats.get('registros_ok', 0)}")
+            self.div_label.config(text=f"Surveys com divergência: {total_div}")
             
             # Update divergence type buttons with formatted names
             div_counts = {

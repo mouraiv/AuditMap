@@ -79,7 +79,7 @@ class ValidationFrame(tk.Frame):
         self.ok_label.grid(row=0, column=1, sticky='w', padx=(0, 20))
         
         self.div_label = tk.Label(
-            summary_frame, text="Endereços com divergência: 0", 
+            summary_frame, text="Surveys com divergência: 0", 
             font=('Helvetica', 10, 'bold'), bg='#f0f0f0', fg='red'
         )
         self.div_label.grid(row=0, column=2, sticky='w')

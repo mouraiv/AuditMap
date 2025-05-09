@@ -42,7 +42,7 @@ class HomeFrame(tk.Frame):
         matrix_frame.pack(fill='x', pady=5)
         
         tk.Label(
-            matrix_frame, text="Base Matrix (XML):", 
+            matrix_frame, text="Base Netwin (XML):", 
             font=('Helvetica', 10, 'bold'), bg='#f0f0f0'
         ).pack(side='left', padx=(0, 10))
         
