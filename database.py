@@ -151,7 +151,8 @@ class Database:
                     pais TEXT,
                     complemento TEXT,
                     quantidade TEXT,
-                    data TEXT
+                    data TEXT,
+                    cep_dup INTEGER DEFAULT 0, -- 0 = OK, 2 = Duplicado
                 )
             ''')
             
@@ -211,6 +212,9 @@ class Database:
                     status INTEGER DEFAULT 3, -- 1 = OK, 2 = Divergente, 3 = Não encontrado
                     lograd_div INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente
                     bairro_div INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente
+                    munic_div INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente
+                    loc_div INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente
+                    uf_div INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente
                     cep_div INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente
                     baixado BOOLEAN
                 )
@@ -402,7 +406,25 @@ class Database:
         """Conta surveys por status"""
         self.cursor.execute("SELECT COUNT(*) FROM campo")
         return self.cursor.fetchone()[0]
-        
+    
+    def obter_dados_por_cep(self, cep):
+        """Retorna os dados de endereço correspondentes ao CEP fornecido."""
+        self.cursor.execute("""
+            SELECT nome_lograd, bairro, municipio, localidade, uf_abrev 
+            FROM roteiros 
+            WHERE cep = ?
+        """, (cep.strip(),))
+        resultado = self.cursor.fetchone()
+        if resultado:
+            return {
+                'logradouro': resultado[0].strip() if resultado[0] else '',
+                'bairro': resultado[1].strip() if resultado[1] else '',
+                'municipio': resultado[2].strip() if resultado[2] else '',
+                'localidade': resultado[3].strip() if resultado[3] else '',
+                'uf': resultado[4].strip() if resultado[4] else ''
+            }
+        return None
+
     def carregar_roteiros_por_cep(self):
         """Carrega todos os roteiros e os organiza por CEP."""
         self.cursor.execute("SELECT * FROM roteiros")
