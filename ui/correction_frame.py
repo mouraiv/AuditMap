@@ -248,14 +248,15 @@ class CorrectionFrame(tk.Frame):
 
         # Estilo da Treeview
         style = ttk.Style()
-        style.configure("Treeview.Heading", font=("Helvetica", 8, "bold"))
-        style.configure("Treeview", font=("Helvetica", 8, "bold"))
+        style.configure("Correction.Treeview.Heading", font=("Helvetica", 8, "bold"))
+        style.configure("Correction.Treeview", font=("Helvetica", 8, "bold"))
         
         # Treeview for addresses
         self.addresses_tree = ttk.Treeview(
             self.addresses_frame, 
             columns=('id', 'logradouro', 'numero', 'bairro', 'cep', 'divergencias'), 
-            show='headings'
+            show='headings',
+            style="Correction.Treeview"
         )
 
         # Adicione este binding após criar a Treeview
@@ -292,6 +293,9 @@ class CorrectionFrame(tk.Frame):
             font=('Helvetica', 10, 'bold')
         )
         back_btn.pack(pady=(20, 0))
+
+        # Configura a validação contínua para todos os campos
+        self.configurar_validacao_continua()
 
     def get_tecnico_atual(self):
         info_tecnico = self.controller.db.get_tecnico_empresa_surveys()
@@ -481,6 +485,8 @@ class CorrectionFrame(tk.Frame):
         safe_insert(self.complemento1_entry, addr.get('complemento1'))  # sem flag (não muda cor)
         safe_insert(self.complemento2_entry, addr.get('complemento2'))  # sem flag (não muda cor)
 
+        print(addr)
+
         self.moradia_var.set(addr.get('moradia', 0))
         self.edificio_var.set(addr.get('edificio', 0))
 
@@ -495,7 +501,7 @@ class CorrectionFrame(tk.Frame):
 
     def carregar_sugestao(self):
         """Carrega sugestões baseadas no tipo de divergência"""
-         # Limpa todas as sugestões anteriores (apenas o texto)
+        #Limpar sugestão anteriores
         self.limpar_sugestoes_anteriores()
         # Se for um dos tipos especiais, busca sugestões da API
         if self.current_divergence_type in ['cep_dup', 'nao_encontrado', 'nao_encontrado_cep_dup']:
@@ -606,27 +612,31 @@ class CorrectionFrame(tk.Frame):
             # Mapeamento entre campos da API e widgets de sugestão
             # Agora só precisamos do widget, sem informações de posicionamento
             campos_api = {
-                'logradouro': self.logradouro_entry_sg,
-                'bairro': self.bairro_entry_sg,
-                'municipio': self.municipio_entry_sg,
-                'localidade': self.localidade_entry_sg,
-                'uf': self.uf_entry_sg,
-                'cep': self.cep_entry_sg
+                'logradouro': (self.logradouro_entry, self.logradouro_entry_sg),
+                'bairro': (self.bairro_entry, self.bairro_entry_sg),
+                'municipio': (self.municipio_entry, self.municipio_entry_sg),
+                'localidade': (self.localidade_entry, self.localidade_entry_sg),
+                'uf': (self.uf_entry, self.uf_entry_sg),
+                'cep': (self.cep_entry, self.cep_entry_sg)
             }
 
-            for campo, widget_sg in campos_api.items():
-                if valor := endereco_api.get(campo, ''):
+            for campo, (entry, widget_sg) in campos_api.items():
+                valor_api = endereco_api.get(campo, '')
+                if widget_sg and valor_api:
                     widget_sg.config(
-                        text=f"[API] {valor.upper()}",
+                        text=f"[API] {valor_api.upper()}",
                         fg='white',
                         bg='#0066cc',
                         font=('Helvetica', 8, 'italic', 'bold'),
+                        cursor='hand2',
                         height=1,
                         borderwidth=0,
                         highlightthickness=0,
                         anchor='w',
                         padx=5
                     )
+                    widget_sg.bind('<Button-1>', 
+                        lambda e, entry=entry, valor=valor_api: self.aplicar_sugestao(entry, valor))
 
         # Executa com spinner automático
         self.loading_spinner.run_with_spinner(
@@ -644,41 +654,98 @@ class CorrectionFrame(tk.Frame):
                 return
 
             # Mapeamento dos campos para verificação
-            # Apenas os widgets, sem info de posicionamento
             campos_verificacao = {
-                'logradouro': self.logradouro_entry_sg,
-                'bairro': self.bairro_entry_sg,
-                'municipio': self.municipio_entry_sg,
-                'localidade': self.localidade_entry_sg,
-                'uf': self.uf_entry_sg
+                'logradouro': (self.logradouro_entry, self.logradouro_entry_sg),
+                'bairro': (self.bairro_entry, self.bairro_entry_sg),
+                'municipio': (self.municipio_entry, self.municipio_entry_sg),
+                'localidade': (self.localidade_entry, self.localidade_entry_sg),
+                'uf': (self.uf_entry, self.uf_entry_sg)
             }
 
-            # Atualiza apenas o texto das labels de sugestão
-            for campo, widget_sg in campos_verificacao.items():
-                #Carregar valor
+            for campo, (entry, widget_sg) in campos_verificacao.items():
                 valor_correto = dados_banco.get(campo, '')
                 if widget_sg and valor_correto:
+                    # Configura a label de sugestão
                     widget_sg.config(
                         text=f"[ROTEIRO] {valor_correto.upper()}",
                         fg='white',
                         bg='#008000',
+                        font=('Helvetica', 8, 'italic', 'bold'),
+                        cursor='hand2',
                         height=1,
                         borderwidth=0,
                         highlightthickness=0,
-                        font=('Helvetica', 8, 'italic', 'bold'),
                         anchor='w',
                         padx=5
                     )
                     
+                    # Adiciona o evento de clique
+                    widget_sg.bind('<Button-1>', 
+                        lambda e, entry=entry, valor=valor_correto: self.aplicar_sugestao(entry, valor))
+                    
+                    # Verifica se o valor atual está correto
+                    if entry.get().strip().upper() == valor_correto.upper():
+                        entry.config(bg='white')  # Volta ao normal se estiver correto
+                        
         except Exception as e:
             print(f"Erro ao verificar endereço por CEP: {str(e)}")
 
+    def aplicar_sugestao(self, entry_widget, valor):
+        """Aplica a sugestão ao campo correspondente"""
+        entry_widget.delete(0, tk.END)
+        entry_widget.insert(0, valor.upper())
+        entry_widget.config(bg='white')  # Remove o destaque de erro
+        
+        # Verifica se há divergência para remover o destaque
+        self.limpar_destaque_correcao(entry_widget, 'campo')  # O campo será verificado na próxima validação
+
+    def limpar_destaque_correcao(self, entry_widget, campo, event=None):
+        cep = self.cep_entry.get().strip()
+        dados_banco = self.controller.db.obter_dados_por_cep(cep)
+
+        if not dados_banco or campo not in dados_banco:
+            return
+
+        valor_digitado = entry_widget.get().strip().lower()
+        valor_correto = str(dados_banco[campo]).strip().lower()
+
+        if valor_digitado == valor_correto and valor_digitado != "":
+            entry_widget.config(bg='white')  # Fundo normal quando correto
+            # Remove a sugestão se existir
+            entry_sg = getattr(self, f'{campo}_entry_sg', None)
+            if entry_sg:
+                entry_sg.config(text='', bg=self.inner_form.cget('bg'))
+        else:
+            entry_widget.config(bg='#ffcccc')  # Fundo vermelho claro quando divergente
+            # Mostra a sugestão novamente se necessário
+            self.verificar_endereco_por_cep()
+
+    def configurar_validacao_continua(self):
+        """Configura o evento KeyRelease para todos os campos editáveis"""
+        campos = {
+            'logradouro': self.logradouro_entry,
+            'bairro': self.bairro_entry,
+            'municipio': self.municipio_entry,
+            'localidade': self.localidade_entry,
+            'uf': self.uf_entry,
+            'cep': self.cep_entry
+        }
+        
+        for campo, entry in campos.items():
+            entry.bind('<KeyRelease>', lambda e, c=campo: self.limpar_destaque_correcao(e.widget, c))
+
     def limpar_sugestoes_anteriores(self):
-        """Remove o texto de todas as sugestões anteriores"""
+        """Remove o texto e formatação de todas as sugestões anteriores"""
         for attr in ['logradouro', 'bairro', 'municipio', 'localidade', 'uf', 'cep']:
             entry_sg = getattr(self, f'{attr}_entry_sg', None)
             if entry_sg:
-                entry_sg.config(text='', bg=self.inner_form.cget('bg'))
+                entry_sg.config(
+                    text='',
+                    bg=self.inner_form.cget('bg'),  # Reseta para a cor de fundo do form
+                    fg='black'  # Reseta a cor do texto
+                )
+                # Remove todos os eventos de clique anteriores
+                entry_sg.unbind('<Button-1>')
 
     def export_valid_surveys(self):
         """Exports validated surveys"""

@@ -90,11 +90,11 @@ class ValidationFrame(tk.Frame):
 
         # Estilo da Treeview
         style = ttk.Style()
-        style.configure("Treeview.Heading", font=("Helvetica", 10, "bold"))
-        style.configure("Treeview", font=("Helvetica", 10, "bold"))
+        style.configure("Validation.Treeview.Heading", font=("Helvetica", 9, "bold"))
+        style.configure("Validation.Treeview", font=("Helvetica", 9, "bold"))
 
         # Treeview
-        self.tree = ttk.Treeview(div_frame, columns=('type', 'count'), show='headings', height=10)
+        self.tree = ttk.Treeview(div_frame, columns=('type', 'count'), show='headings', height=10, style="Validation.Treeview")
         self.tree.heading('type', text='Tipo de Divergência')
         self.tree.heading('count', text='Quantidade')
         self.tree.column('type', width=200)
