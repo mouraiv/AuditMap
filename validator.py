@@ -17,30 +17,9 @@ class AddressValidator:
                 'bairro': divergencias['bairro_div'],
                 'logradouro_bairro': divergencias['logradouro_bairro_div'],
                 'cep': divergencias['cep_div'],
-                'nao_encontrado': divergencias['nao_encontrado']
+                'cep_dup': divergencias['cep_dup'],
+                'nao_encontrado': divergencias['nao_encontrado'],
+                'nao_encontrado_cep_dup': divergencias['nao_encontrado_cep_dup']
             }
         }
     
-    def validate_survey(self, campo_data: Dict, survey_data: Dict) -> List[str]:
-        """Valida um registro específico comparando campo vs survey"""
-        divergences = []
-        
-        # Validação de logradouro
-        campo_logradouro = str(campo_data.get('endereco_completo', '')).strip()
-        survey_logradouro = str(survey_data.get('logradouro', '')).strip()
-        if not campo_logradouro or not survey_logradouro or campo_logradouro != survey_logradouro:
-            divergences.append('logradouro')
-        
-        # Validação de bairro
-        campo_bairro = str(campo_data.get('bairro', '')).strip()
-        survey_bairro = str(survey_data.get('bairro', '')).strip()
-        if not campo_bairro or not survey_bairro or campo_bairro != survey_bairro:
-            divergences.append('bairro')
-        
-        # Validação de CEP
-        campo_cep = str(campo_data.get('cep', '')).strip()
-        survey_cep = str(survey_data.get('cep', '')).strip()
-        if not campo_cep or not survey_cep or campo_cep != survey_cep:
-            divergences.append('cep')
-        
-        return divergences

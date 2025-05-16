@@ -47,13 +47,13 @@ class ValidationFrame(tk.Frame):
         self.voltar.bind("<Leave>", lambda e: self.voltar.config(font=('Helvetica', 10, 'bold')))
 
         self.tecnico = tk.Label(
-            header_info_frame, text="[ Técnico: -- ]", 
+            header_info_frame, text="[ -- ]", 
             font=('Helvetica', 9, 'bold'), bg='#f0f0f0'
         )
         self.tecnico.grid(row=0, column=1, sticky='e', padx=(0, 20))
 
         self.empresa = tk.Label(
-            header_info_frame, text="[ Empresa: -- ]", 
+            header_info_frame, text="[ -- ]", 
             font=('Helvetica', 9, 'bold'), bg='#f0f0f0'
         )
         self.empresa.grid(row=0, column=2, sticky='w', padx=(0, 20))
@@ -127,11 +127,11 @@ class ValidationFrame(tk.Frame):
         if not info_tecnico or len(info_tecnico) < 2:
             return None, None
         
-        tecnico_nome = info_tecnico.get('tecnico_nome', '--')
-        empresa_nome = info_tecnico.get('empresa_nome', '--')
+        tecnico_nome = info_tecnico.get('tecnico_nome', '[ -- ]')
+        empresa_nome = info_tecnico.get('empresa_nome', '[ -- ]')
 
-        self.tecnico.config(text=f"[ Técnico: {tecnico_nome} ]")
-        self.empresa.config(text=f"[ Empresa: {empresa_nome} ]")
+        self.tecnico.config(text=f"[ {tecnico_nome} ]")
+        self.empresa.config(text=f"[ {empresa_nome} ]")
     
     def correct_divergences(self):
         self.controller.show_frame('CorrectionFrame')
@@ -156,13 +156,15 @@ class ValidationFrame(tk.Frame):
                 'logradouro': 'Logradouro',
                 'bairro': 'Bairro',
                 'logradouro_bairro': 'Logradouro / Bairro',
-                'nao_encontrado': 'Não Encontrado'
+                'cep_dup': 'Logradouro com múltiplos CEPs',
+                'nao_encontrado': 'Não Encontrado',
+                'nao_encontrado_cep_dup': 'Não Encontrado / Logradouro com múltiplos CEPs'
             }
 
             # Atualiza a treeview
             for item in self.tree.get_children():
                 self.tree.delete(item)
-
+                
             for i, (div_type, count) in enumerate(divergente.items()):
                 tag = 'even' if i % 2 == 0 else 'odd'
                 self.tree.insert('', 'end', values=(div_type_names[div_type], count), tags=(tag,))

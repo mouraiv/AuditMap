@@ -1,7 +1,8 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from functools import partial
-from typing import List, Dict
+from ui.loading_spinner import LoadingSpinner
+from api_opemstreet import buscar_endereco_por_coordenadas
+from typing import Dict
 
 class CorrectionFrame(tk.Frame):
     def __init__(self, parent, controller):
@@ -10,6 +11,9 @@ class CorrectionFrame(tk.Frame):
         self.current_address_index = 0
         self.divergent_addresses = []
         self.current_divergence_type = None
+
+        # Adicione esta linha para criar o spinner
+        self.loading_spinner = LoadingSpinner(self)
         
         self.configure(bg='#f0f0f0')
         self.grid_columnconfigure(0, weight=1)
@@ -51,13 +55,13 @@ class CorrectionFrame(tk.Frame):
         self.voltar.bind("<Leave>", lambda e: self.voltar.config(font=('Helvetica', 10, 'bold')))
 
         self.tecnico = tk.Label(
-            header_info_frame, text="[ Técnico: -- ]", 
+            header_info_frame, text="[ -- ]", 
             font=('Helvetica', 9, 'bold'), bg='#f0f0f0'
         )
         self.tecnico.grid(row=0, column=1, sticky='e', padx=(0, 20))
 
         self.empresa = tk.Label(
-            header_info_frame, text="[ Empresa: -- ]", 
+            header_info_frame, text="[ -- ]", 
             font=('Helvetica', 9, 'bold'), bg='#f0f0f0'
         )
         self.empresa.grid(row=0, column=2, sticky='w', padx=(0, 20))
@@ -117,15 +121,17 @@ class CorrectionFrame(tk.Frame):
             'logradouro': 'Logradouro',
             'bairro': 'Bairro',
             'logradouro_bairro': 'Logradouro / Bairro',
-            'nao_encontrado': 'Não Encontrado'
+            'cep_dup': 'Logradouro com múltiplos CEPs',
+            'nao_encontrado': 'Não Encontrado',
+            'nao_encontrado_cep_dup': 'Não Encontrado / Logradouro com múltiplos CEPs'
         }
 
-        for div_type in ['logradouro', 'bairro', 'logradouro_bairro', 'nao_encontrado']:
+        for div_type in ['logradouro', 'bairro', 'logradouro_bairro', 'cep_dup', 'nao_encontrado', 'nao_encontrado_cep_dup']:
             btn_text = f"{div_type_names[div_type]} (0)"  # Usa o nome formatado do dicionário
             btn = tk.Label(
                 div_list_frame, 
                 text=btn_text,
-                font=('Helvetica', 10, 'bold', 'underline'), 
+                font=('Helvetica', 8, 'bold', 'underline'), 
                 fg='red', 
                 bg='#f0f0f0', 
                 cursor='hand2'
@@ -157,76 +163,80 @@ class CorrectionFrame(tk.Frame):
         self.moradia_var = tk.IntVar()
         self.edificio_var = tk.IntVar()
 
-        tk.Checkbutton(self.inner_form, text="Moradia", variable=self.moradia_var, bg='#f0f0f0', font=('Helvetica', 9, 'bold')).grid(row=0, column=0, columnspan=2, sticky='e', padx=0, pady=10)
-        tk.Checkbutton(self.inner_form, text="Edifício", variable=self.edificio_var, bg='#f0f0f0', font=('Helvetica', 9, 'bold')).grid(row=0, column=1, sticky='w', padx=0, pady=10)
+        tk.Checkbutton(self.inner_form, text="Moradia", variable=self.moradia_var, bg='#f0f0f0', font=('Helvetica', 9, 'bold')).grid(row=0, column=0, columnspan=2, sticky='e', padx=0, pady=0)
+        tk.Checkbutton(self.inner_form, text="Edifício", variable=self.edificio_var, bg='#f0f0f0', font=('Helvetica', 9, 'bold')).grid(row=0, column=1, sticky='w', padx=0, pady=0)
 
-        tk.Label(self.inner_form, text="Latitude:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=0, column=2, sticky='e', padx=5, pady=10)
+        tk.Label(self.inner_form, text="Latitude:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=0, column=2, sticky='e', padx=5, pady=0)
         self.latitude_entry = tk.Entry(self.inner_form, font=('Helvetica', 10))
-        self.latitude_entry.grid(row=0, column=3, sticky='ew', padx=0, pady=10)
+        self.latitude_entry.grid(row=0, column=3, sticky='ew', padx=0, pady=0)
 
-        tk.Label(self.inner_form, text="Longitude:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=0, column=4, sticky='e', padx=5, pady=10)
+        tk.Label(self.inner_form, text="Longitude:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=0, column=4, sticky='e', padx=5, pady=0)
         self.longitude_entry = tk.Entry(self.inner_form, font=('Helvetica', 10))
-        self.longitude_entry.grid(row=0, column=5, sticky='ew', padx=5, pady=10)
+        self.longitude_entry.grid(row=0, column=5, sticky='ew', padx=5, pady=0)
 
-        tk.Label(self.inner_form, text="CEP:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=0, column=6, sticky='e', padx=5, pady=10)
+        tk.Label(self.inner_form, text="CEP:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=0, column=6, sticky='e', padx=5, pady=0)
         self.cep_entry = tk.Entry(self.inner_form, font=('Helvetica', 10))
-        self.cep_entry.grid(row=0, column=7, sticky='ew', padx=5, pady=10)
+        self.cep_entry.grid(row=0, column=7, sticky='ew', padx=5, pady=0)
 
-        # Linha 1: Logradouro e Número
-        tk.Label(self.inner_form, text="Lograd.:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=1, column=0, sticky='e', padx=5, pady=0)  # Alterado sticky para 'w' e padx reduzido
+        # Linha 1: Grig label sugestão bairro, municipio, localidade, uf
+        self.cep_entry_sg = tk.Label(self.inner_form)
+        self.cep_entry_sg.grid(row=1, column=7, sticky='ew', padx=0, pady=(0,5))
+
+        # Linha 2: Logradouro e Número
+        tk.Label(self.inner_form, text="Lograd.:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=2, column=0, sticky='e', padx=5, pady=0)  # Alterado sticky para 'w' e padx reduzido
         self.logradouro_entry = tk.Entry(self.inner_form, font=('Helvetica', 10))
-        self.logradouro_entry.grid(row=1, column=1, columnspan=5, sticky='ew', padx=0, pady=(0, 0))
+        self.logradouro_entry.grid(row=2, column=1, columnspan=5, sticky='ew', padx=0, pady=(0, 0))
         
-        tk.Label(self.inner_form, text="N°:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=1, column=6, sticky='e', padx=5, pady=0)
+        tk.Label(self.inner_form, text="N°:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=2, column=6, sticky='e', padx=5, pady=0)
         self.numero_entry = tk.Entry(self.inner_form, font=('Helvetica', 10))
-        self.numero_entry.grid(row=1, column=7, sticky='ew', padx=0, pady=0)
+        self.numero_entry.grid(row=2, column=7, sticky='ew', padx=0, pady=0)
 
-        # Linha 2: Grig label sugestão logradouro
+        # Linha 3: Grig label sugestão logradouro
         self.logradouro_entry_sg = tk.Label(self.inner_form, height=1, highlightthickness=0, borderwidth=0, relief='flat')
-        self.logradouro_entry_sg.grid(row=2, column=1, columnspan=5, sticky='w', padx=0, pady=0)
+        self.logradouro_entry_sg.grid(row=3, column=1, columnspan=5, sticky='ew', padx=0,  pady=(0,5))
        
-        # Linha 3: Bairro, Município, LOCALIDADE, UF
-        tk.Label(self.inner_form, text="Bairro:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=3, column=0, sticky='e', padx=5, pady=0)  # Alterado sticky para 'w' e padx reduzido
+        # Linha 4: Bairro, Município, LOCALIDADE, UF
+        tk.Label(self.inner_form, text="Bairro:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=4, column=0, sticky='e', padx=5, pady=0)  # Alterado sticky para 'w' e padx reduzido
         self.bairro_entry = tk.Entry(self.inner_form, font=('Helvetica', 10))
-        self.bairro_entry.grid(row=3, column=1, sticky='ew', padx=(0,5), pady=0)  # Padx ajustado
+        self.bairro_entry.grid(row=4, column=1, sticky='ew', padx=(0,5), pady=0)  # Padx ajustado
 
-        tk.Label(self.inner_form, text="Município:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=3, column=2, sticky='e', padx=5, pady=0)
+        tk.Label(self.inner_form, text="Município:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=4, column=2, sticky='e', padx=5, pady=0)
         self.municipio_entry = tk.Entry(self.inner_form, font=('Helvetica', 10))
-        self.municipio_entry.grid(row=3, column=3, sticky='ew', padx=5, pady=0)
+        self.municipio_entry.grid(row=4, column=3, sticky='ew', padx=5, pady=0)
 
-        tk.Label(self.inner_form, text="Localidade:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=3, column=4, sticky='e', padx=5, pady=0)
+        tk.Label(self.inner_form, text="Localidade:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=4, column=4, sticky='e', padx=5, pady=0)
         self.localidade_entry = tk.Entry(self.inner_form, font=('Helvetica', 10))
-        self.localidade_entry.grid(row=3, column=5, sticky='ew', padx=5, pady=0)
+        self.localidade_entry.grid(row=4, column=5, sticky='ew', padx=5, pady=0)
 
-        tk.Label(self.inner_form, text="UF:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=3, column=6, sticky='e', padx=5, pady=0)
+        tk.Label(self.inner_form, text="UF:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=4, column=6, sticky='e', padx=5, pady=0)
         self.uf_entry = tk.Entry(self.inner_form, font=('Helvetica', 10))
-        self.uf_entry.grid(row=3, column=7, sticky='ew', padx=5, pady=0)
+        self.uf_entry.grid(row=4, column=7, sticky='ew', padx=5, pady=0)
 
-        # Linha 4: Grig label sugestão bairro, municipio, localidade, uf
+        # Linha 5: Grig label sugestão bairro, municipio, localidade, uf
         self.bairro_entry_sg = tk.Label(self.inner_form)
-        self.bairro_entry_sg.grid(row=4, column=1, sticky='w', padx=0, pady=0)
+        self.bairro_entry_sg.grid(row=5, column=1, sticky='ew', padx=0,  pady=(0,5))
 
         self.municipio_entry_sg = tk.Label(self.inner_form)
-        self.municipio_entry_sg.grid(row=4, column=3, sticky='w', padx=0, pady=0)
+        self.municipio_entry_sg.grid(row=5, column=3, sticky='ew', padx=0,  pady=(0,5))
 
         self.localidade_entry_sg = tk.Label(self.inner_form)
-        self.localidade_entry_sg.grid(row=4, column=5, sticky='w', padx=0, pady=0)
+        self.localidade_entry_sg.grid(row=5, column=5, sticky='ew', padx=0,  pady=(0,5))
 
         self.uf_entry_sg = tk.Label(self.inner_form)
-        self.uf_entry_sg.grid(row=4, column=7, sticky='w', padx=0, pady=0)
+        self.uf_entry_sg.grid(row=5, column=7, sticky='ew', padx=0,  pady=(0,5))
     
-        # Linha 5: Complementos
-        tk.Label(self.inner_form, text="Compl.1:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=5, column=0, sticky='e', padx=0, pady=0)  # Alterado sticky para 'w' e padx reduzido
+        # Linha 6: Complementos
+        tk.Label(self.inner_form, text="Compl.1:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=6, column=0, sticky='e', padx=0, pady=0)  # Alterado sticky para 'w' e padx reduzido
         self.complemento1_entry = tk.Entry(self.inner_form, font=('Helvetica', 10))
-        self.complemento1_entry.grid(row=5, column=1, columnspan=3, sticky='ew', padx=0, pady=0)
+        self.complemento1_entry.grid(row=6, column=1, columnspan=3, sticky='ew', padx=0, pady=0)
 
-        tk.Label(self.inner_form, text="Compl.2:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=5, column=4, sticky='e', padx=0, pady=0)
+        tk.Label(self.inner_form, text="Compl.2:", bg='#f0f0f0', font=('Helvetica', 10, 'bold')).grid(row=6, column=4, sticky='e', padx=0, pady=0)
         self.complemento2_entry = tk.Entry(self.inner_form, font=('Helvetica', 10))
-        self.complemento2_entry.grid(row=5, column=5, columnspan=3, sticky='ew', padx=0, pady=0)
+        self.complemento2_entry.grid(row=6, column=5, columnspan=3, sticky='ew', padx=0, pady=0)
 
-        # Linha 6: Botões
+        # Linha 7: Botões
         btn_frame = tk.Frame(self.inner_form, bg='#f0f0f0')
-        btn_frame.grid(row=6, column=0, columnspan=8, pady=(10, 0))
+        btn_frame.grid(row=7, column=0, columnspan=8, pady=(10, 0))
 
         tk.Button(btn_frame, text="<<", command=self.previous_address, font=('Helvetica', 10, 'bold')).pack(side='left', padx=(0, 10))
         tk.Button(btn_frame, text="Corrigir", command=self.correct_and_next, bg='#2ecc71', fg='white', width=10, font=('Helvetica', 10, 'bold')).pack(side='left')
@@ -238,8 +248,8 @@ class CorrectionFrame(tk.Frame):
 
         # Estilo da Treeview
         style = ttk.Style()
-        style.configure("Treeview.Heading", font=("Helvetica", 10, "bold"))
-        style.configure("Treeview", font=("Helvetica", 10, "bold"))
+        style.configure("Treeview.Heading", font=("Helvetica", 8, "bold"))
+        style.configure("Treeview", font=("Helvetica", 8, "bold"))
         
         # Treeview for addresses
         self.addresses_tree = ttk.Treeview(
@@ -289,11 +299,11 @@ class CorrectionFrame(tk.Frame):
         if not info_tecnico or len(info_tecnico) < 2:
             return None, None
         
-        tecnico_nome = info_tecnico.get('tecnico_nome', '--')
-        empresa_nome = info_tecnico.get('empresa_nome', '--')
+        tecnico_nome = info_tecnico.get('tecnico_nome', '[ -- ]')
+        empresa_nome = info_tecnico.get('empresa_nome', '[ -- ]')
 
-        self.tecnico.config(text=f"[ Técnico: {tecnico_nome} ]")
-        self.empresa.config(text=f"[ Empresa: {empresa_nome} ]")
+        self.tecnico.config(text=f"[ {tecnico_nome} ]")
+        self.empresa.config(text=f"[ {empresa_nome} ]")
 
     def update_data(self):
         """Updates screen data with database information"""
@@ -304,28 +314,27 @@ class CorrectionFrame(tk.Frame):
                 'logradouro': 'Logradouro',
                 'bairro': 'Bairro',
                 'logradouro_bairro': 'Logradouro / Bairro',
-                'nao_encontrado': 'Não Encontrado'
+                'cep_dup': 'Logradouro com múltiplos CEPs',
+                'nao_encontrado': 'Não Encontrado',
+                'nao_encontrado_cep_dup': 'Não Encontrado / Logradouro com múltiplos CEPs'
             }
 
             # Get divergence statistics
             stats = self.controller.db.get_divergence_types()
             
-            # Update counters
-            total_div = (stats.get('logradouro_div', 0) + 
-                    stats.get('bairro_div', 0) +
-                    stats.get('logradouro_bairro_div', 0) +  
-                    stats.get('nao_encontrado', 0))
-            
+            # Update counters            
             self.total_div_label.config(text=f"Total de surveys: {stats.get('total_registros', 0)}")
             self.total_ok_label.config(text=f"Surveys OK: {stats.get('registros_ok', 0)}")
-            self.div_label.config(text=f"Surveys com divergência: {total_div}")
+            self.div_label.config(text=f"Surveys com divergência: {stats.get('registros_divergentes', 0)}")
             
             # Update divergence type buttons with formatted names
             div_counts = {
                 'logradouro': stats.get('logradouro_div', 0),
                 'bairro': stats.get('bairro_div', 0),
                 'logradouro_bairro': stats.get('logradouro_bairro_div', 0),
-                'nao_encontrado': stats.get('nao_encontrado', 0)
+                'cep_dup': stats.get('cep_dup', 0),
+                'nao_encontrado': stats.get('nao_encontrado', 0),
+                'nao_encontrado_cep_dup': stats.get('nao_encontrado_cep_dup', 0)
             }
             
             for btn, div_type in zip(self.div_buttons, div_counts.keys()):
@@ -340,12 +349,17 @@ class CorrectionFrame(tk.Frame):
                 self.load_divergence_type('bairro')
             elif div_counts['logradouro_bairro'] > 0:
                 self.load_divergence_type('logradouro_bairro')
+            elif div_counts['cep_dup'] > 0:
+                self.load_divergence_type('cep_dup')
             elif div_counts['nao_encontrado'] > 0:
                 self.load_divergence_type('nao_encontrado')
+            elif div_counts['nao_encontrado_cep_dup'] > 0:
+                self.load_divergence_type('nao_encontrado_cep_dup')
 
             # Verifica o CEP do primeiro endereço carregado
             if hasattr(self, 'divergent_addresses') and self.divergent_addresses:
-                self.verificar_endereco_por_cep()
+                #carregar sugestões
+                self.carregar_sugestao()
             
         except Exception as e:
             messagebox.showerror("Erro", f"Falha ao carregar dados: {str(e)}")
@@ -422,8 +436,12 @@ class CorrectionFrame(tk.Frame):
             return "Bairro"
         elif self.current_divergence_type == 'logradouro_bairro':
             return "Logradouro / Bairro"
+        elif self.current_divergence_type == 'cep_dup':
+            return "Logradouro com múltiplos CEPs"
         elif self.current_divergence_type == 'nao_encontrado':
             return "Endereço não encontrado"
+        elif self.current_divergence_type == 'nao_encontrado_cep_dup':
+            return "Não Encontrado / Logradouro com múltiplos CEPs"
         return "Divergência desconhecida"
 
     def load_current_address(self, from_tree=False):
@@ -438,8 +456,17 @@ class CorrectionFrame(tk.Frame):
                 return
             entry_widget.delete(0, tk.END)
             entry_widget.insert(0, str(value) if value is not None else default)
-            # Muda a cor de fundo se for divergente
-            entry_widget.config(bg='#ffcccc' if is_divergent else 'white')
+            
+            # Define a cor de fundo baseada no tipo de divergência
+            if self.current_divergence_type in ['cep_dup', 'nao_encontrado', 'nao_encontrado_cep_dup']:
+                # Se for um dos tipos especiais, usa azul claro para todos os campos (exceto os excluídos)
+                excluded_widgets = [self.latitude_entry, self.longitude_entry, 
+                                self.complemento1_entry, self.complemento2_entry]
+                if entry_widget not in excluded_widgets:
+                    entry_widget.config(bg='#e6f3ff')  # Azul bem clarinho
+            else:
+                # Para outros tipos, usa o padrão (vermelho para divergentes)
+                entry_widget.config(bg='#ffcccc' if is_divergent else 'white')
 
         # Inserção com checagem de divergência
         safe_insert(self.logradouro_entry, addr.get('logradouro'), addr.get('lograd_div') == 2)
@@ -449,33 +476,16 @@ class CorrectionFrame(tk.Frame):
         safe_insert(self.localidade_entry, addr.get('localidade'))  # sem flag
         safe_insert(self.uf_entry, addr.get('uf_abrev'))  # sem flag
         safe_insert(self.municipio_entry, addr.get('municipio'))  # sem flag
-        safe_insert(self.latitude_entry, addr.get('coordX'))  # sem flag
-        safe_insert(self.longitude_entry, addr.get('coordY'))  # sem flag
-        safe_insert(self.complemento1_entry, addr.get('complemento1'))  # sem flag
-        safe_insert(self.complemento2_entry, addr.get('complemento2'))  # sem flag
+        safe_insert(self.latitude_entry, addr.get('coordX'))  # sem flag (não muda cor)
+        safe_insert(self.longitude_entry, addr.get('coordY'))  # sem flag (não muda cor)
+        safe_insert(self.complemento1_entry, addr.get('complemento1'))  # sem flag (não muda cor)
+        safe_insert(self.complemento2_entry, addr.get('complemento2'))  # sem flag (não muda cor)
 
         self.moradia_var.set(addr.get('moradia', 0))
         self.edificio_var.set(addr.get('edificio', 0))
 
-        campos_divergentes = [
-            ('logradouro_entry', 'logradouro', 'lograd_div'),
-            ('bairro_entry', 'bairro', 'bairro_div'),
-            ('municipio_entry', 'municipio', None),
-            ('localidade_entry', 'localidade', None),
-            ('uf_entry', 'uf_abrev', None)
-        ]
-
-        for entry_attr, campo, div_flag in campos_divergentes:
-            entry = getattr(self, entry_attr)
-            valor = addr.get(campo)
-            is_div = addr.get(div_flag, 0) == 2 if div_flag else False
-            safe_insert(entry, valor, is_div)
-
-            # Validação imediata ao carregar
-            self.limpar_destaque_correcao(entry, campo)
-
-            # Bind de correção automática ao digitar
-            entry.bind('<KeyRelease>', partial(self.limpar_destaque_correcao, entry, campo))
+        #carregar sugestões
+        self.carregar_sugestao()
 
         if not from_tree:
             items = self.addresses_tree.get_children()
@@ -483,8 +493,18 @@ class CorrectionFrame(tk.Frame):
                 self.addresses_tree.selection_set(items[self.current_address_index])
                 self.addresses_tree.focus(items[self.current_address_index])
 
-        # Chamada para verificar o CEP após carregar os dados
-        self.verificar_endereco_por_cep()
+    def carregar_sugestao(self):
+        """Carrega sugestões baseadas no tipo de divergência"""
+         # Limpa todas as sugestões anteriores (apenas o texto)
+        self.limpar_sugestoes_anteriores()
+        # Se for um dos tipos especiais, busca sugestões da API
+        if self.current_divergence_type in ['cep_dup', 'nao_encontrado', 'nao_encontrado_cep_dup']:
+            lat = self.latitude_entry.get().strip()
+            lon = self.longitude_entry.get().strip()
+            self.buscar_sugestoes_api(lat, lon)
+        else:
+            # Para outros tipos, faz a verificação por CEP normal
+            self.verificar_endereco_por_cep()
 
     def clear_form(self):
         """Clears the form"""
@@ -536,6 +556,8 @@ class CorrectionFrame(tk.Frame):
                 updates['bairro_div'] = 1
             elif self.current_divergence_type == 'logradouro_bairro':
                 updates['logradouro_bairro_div'] = 1
+            elif self.current_divergence_type == 'cep_dup':
+                updates['cep_dup'] = 1
             elif self.current_divergence_type == 'nao_encontrado':
                 updates['status'] = 1  # Ensure status is set to OK
             
@@ -567,67 +589,96 @@ class CorrectionFrame(tk.Frame):
             self.current_address_index += 1
             self.load_current_address()
 
+    def buscar_sugestoes_api(self, lat, lon):
+        """Versão usando run_with_spinner"""
+        def consulta_api():
+            try:
+                _lat = float(lat.replace(',', '.'))
+                _lon = float(lon.replace(',', '.'))
+                return buscar_endereco_por_coordenadas(_lat, _lon)
+            except ValueError:
+                return None
+
+        def atualizar_ui(endereco_api):
+            if not endereco_api:
+                return
+
+            # Mapeamento entre campos da API e widgets de sugestão
+            # Agora só precisamos do widget, sem informações de posicionamento
+            campos_api = {
+                'logradouro': self.logradouro_entry_sg,
+                'bairro': self.bairro_entry_sg,
+                'municipio': self.municipio_entry_sg,
+                'localidade': self.localidade_entry_sg,
+                'uf': self.uf_entry_sg,
+                'cep': self.cep_entry_sg
+            }
+
+            for campo, widget_sg in campos_api.items():
+                if valor := endereco_api.get(campo, ''):
+                    widget_sg.config(
+                        text=f"[API] {valor.upper()}",
+                        fg='white',
+                        bg='#0066cc',
+                        font=('Helvetica', 8, 'italic', 'bold'),
+                        height=1,
+                        borderwidth=0,
+                        highlightthickness=0,
+                        anchor='w',
+                        padx=5
+                    )
+
+        # Executa com spinner automático
+        self.loading_spinner.run_with_spinner(
+            target_func=consulta_api,
+            callback=atualizar_ui
+        )
+
     def verificar_endereco_por_cep(self):
-        cep = self.cep_entry.get().strip()
-        dados_banco = self.controller.db.obter_dados_por_cep(cep)
+        """Verifica e exibe sugestões de endereço baseadas no CEP"""
+        try:
+            cep = self.cep_entry.get().strip()
+            dados_banco = self.controller.db.obter_dados_por_cep(cep)
 
-        # Remove todas as sugestões antes de processar
-        for attr in ['logradouro', 'bairro', 'municipio', 'localidade', 'uf']:
-            # Remove labels de sugestão de diferença
-            sug_attr = f'sugestao_{attr}_label'
-            if hasattr(self, sug_attr):
-                getattr(self, sug_attr).destroy()
-            
-            # Remove ou limpa as labels de sugestão (_entry_sg)
-            entry_sg_attr = f'{attr}_entry_sg'
-            if hasattr(self, entry_sg_attr):
-                getattr(self, entry_sg_attr).config(text='')  # Limpa o texto
+            if not dados_banco:
+                return
 
-        if not dados_banco:
-            return
+            # Mapeamento dos campos para verificação
+            # Apenas os widgets, sem info de posicionamento
+            campos_verificacao = {
+                'logradouro': self.logradouro_entry_sg,
+                'bairro': self.bairro_entry_sg,
+                'municipio': self.municipio_entry_sg,
+                'localidade': self.localidade_entry_sg,
+                'uf': self.uf_entry_sg
+            }
 
-        # Mapeamento entre campos do banco e widgets
-        campos = {
-            'logradouro': (self.logradouro_entry, self.logradouro_entry_sg, 2, 1, 5),
-            'bairro': (self.bairro_entry, self.bairro_entry_sg, 4, 1, 1),
-            'municipio': (self.municipio_entry, self.municipio_entry_sg, 4, 3, 1),
-            'localidade': (self.localidade_entry, self.localidade_entry_sg, 4, 5, 1),
-            'uf': (self.uf_entry, self.uf_entry_sg, 4, 7, 1),
-        }
+            # Atualiza apenas o texto das labels de sugestão
+            for campo, widget_sg in campos_verificacao.items():
+                #Carregar valor
+                valor_correto = dados_banco.get(campo, '')
+                if widget_sg and valor_correto:
+                    widget_sg.config(
+                        text=f"[ROTEIRO] {valor_correto.upper()}",
+                        fg='white',
+                        bg='#008000',
+                        height=1,
+                        borderwidth=0,
+                        highlightthickness=0,
+                        font=('Helvetica', 8, 'italic', 'bold'),
+                        anchor='w',
+                        padx=5
+                    )
+                    
+        except Exception as e:
+            print(f"Erro ao verificar endereço por CEP: {str(e)}")
 
-        for campo, (widget, sugestao_widget, row, col, colspan) in campos.items():
-            valor_correto = dados_banco.get(campo, '')
-            
-            # Obtém valor atual dependendo do tipo de widget
-            if hasattr(widget, 'get'):  # Se for Entry
-                valor_atual = widget.get().strip()
-            else:  # Se for Label
-                valor_atual = widget.cget("text").strip() if widget.cget("text") else ''
-            
-            # Mostra sugestão de diferença se for diferente
-            if valor_atual.lower() != valor_correto.lower() and valor_correto:
-                sug_label = tk.Label(
-                    self.inner_form,
-                    text=f"[ROTEIRO]: {valor_correto}",
-                    fg='white',
-                    bg='#008000',
-                    font=('Helvetica', 7, 'italic', 'bold'),
-                    height=1,
-                    padx=5,
-                    pady=0,
-                    relief='flat',
-                    highlightthickness=0,
-                    borderwidth=0,
-                    anchor='w'
-                )
-                sug_label.grid(row=row, column=col, columnspan=colspan, sticky='ew', padx=(0,0), pady=0, ipady=0)
-                setattr(self, f'sugestao_{campo}_label', sug_label)
-            else:
-                # Remove a sugestão se não houver diferença
-                if hasattr(self, f'sugestao_{campo}_label'):
-                    getattr(self, f'sugestao_{campo}_label').destroy()
-                if sugestao_widget:
-                    sugestao_widget.config(text='')
+    def limpar_sugestoes_anteriores(self):
+        """Remove o texto de todas as sugestões anteriores"""
+        for attr in ['logradouro', 'bairro', 'municipio', 'localidade', 'uf', 'cep']:
+            entry_sg = getattr(self, f'{attr}_entry_sg', None)
+            if entry_sg:
+                entry_sg.config(text='', bg=self.inner_form.cget('bg'))
 
     def export_valid_surveys(self):
         """Exports validated surveys"""

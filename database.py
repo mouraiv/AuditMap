@@ -3,6 +3,7 @@ import re
 import pandas as pd
 from datetime import datetime
 from typing import List, Dict, Optional
+
 class Database:
     def __init__(self, db_name="auditmap.db"):
         self.db_name = db_name
@@ -152,7 +153,7 @@ class Database:
                     complemento TEXT,
                     quantidade TEXT,
                     data TEXT,
-                    cep_dup INTEGER DEFAULT 0, -- 0 = OK, 2 = Duplicado
+                    cep_dup INTEGER DEFAULT 0 -- 0 = OK, 2 = Duplicado
                 )
             ''')
             
@@ -215,6 +216,7 @@ class Database:
                     munic_div INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente
                     loc_div INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente
                     uf_div INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente
+                    cep_dup INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente            
                     cep_div INTEGER DEFAULT 0, -- 1 = OK, 2 = Divergente
                     baixado BOOLEAN
                 )
@@ -282,11 +284,13 @@ class Database:
             SELECT
                 COUNT(*) AS total_registros,
                 SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS registros_ok,
-                SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS registros_divergentes,
-                SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) AS nao_encontrado,
-                SUM(CASE WHEN lograd_div = 2 AND bairro_div != 2 THEN 1 ELSE 0 END) AS logradouro_div,
-                SUM(CASE WHEN bairro_div = 2 AND lograd_div != 2 THEN 1 ELSE 0 END) AS bairro_div,
-                SUM(CASE WHEN bairro_div = 2 AND lograd_div = 2 THEN 1 ELSE 0 END) AS logradouro_bairro_div,            
+                SUM(CASE WHEN status = 2 OR status = 3 THEN 1 ELSE 0 END) AS registros_divergentes,
+                SUM(CASE WHEN status = 3 AND cep_dup != 2 THEN 1 ELSE 0 END) AS nao_encontrado,
+                SUM(CASE WHEN lograd_div = 2 AND bairro_div != 2 AND cep_dup != 2 THEN 1 ELSE 0 END) AS logradouro_div,
+                SUM(CASE WHEN bairro_div = 2 AND lograd_div != 2 AND cep_dup != 2 THEN 1 ELSE 0 END) AS bairro_div,
+                SUM(CASE WHEN bairro_div = 2 AND lograd_div = 2 AND cep_dup != 2 THEN 1 ELSE 0 END) AS logradouro_bairro_div,
+                SUM(CASE WHEN cep_dup = 2 AND status != 3 THEN 1 ELSE 0 END) AS cep_dup,
+                SUM(CASE WHEN cep_dup = 2 AND status == 3 THEN 1 ELSE 0 END) AS nao_encontrado_cep_dup,            
                 SUM(CASE WHEN cep_div = 2 THEN 1 ELSE 0 END) AS cep_div
             FROM survey
         """)
@@ -302,7 +306,9 @@ class Database:
                 'logradouro_div': result[4],
                 'bairro_div': result[5],
                 'logradouro_bairro_div': result[6],
-                'cep_div': result[7]
+                'cep_dup': result[7],
+                'nao_encontrado_cep_dup': result[8],
+                'cep_div': result[9]
             }
         return {
             'total_registros': 0,
@@ -312,34 +318,45 @@ class Database:
             'logradouro_div': 0,
             'bairro_div': 0,
             'logradouro_bairro_div': 0,
+            'cep_dup': 0,
+            'nao_encontrado_cep_dup': 0,
             'cep_div': 0
         }
 
     def get_divergent_addresses(self, div_type: str) -> List[Dict]:
         """Retorna surveys com um tipo específico de divergência. Ignora tipos não mapeados."""
+        div_type = div_type.lower()
+        
         base_query = "SELECT * FROM survey WHERE status = 2"
-        base_query_nao_encontrado = "SELECT * FROM survey WHERE status = 3"
-        
-        conditions = {
-            'logradouro': "lograd_div = 2 and bairro_div != 2",
-            'bairro': "bairro_div = 2 and lograd_div != 2",
-            'logradouro_bairro': "lograd_div = 2 and bairro_div = 2"
-        }
-        
-        condition_sql = conditions.get(div_type.lower())
-        if condition_sql is None and div_type.lower() != 'nao_encontrado':
-            return []  # Retorna vazio se o tipo não for reconhecido
-        
-        elif div_type.lower() == "nao_encontrado":
+        base_query_nao_encontrado = "SELECT * FROM survey WHERE status = 3 and cep_dup != 2"
+        base_query_nao_encontrado_lograd_mult_cep = "SELECT * FROM survey WHERE status = 3 and cep_dup = 2"
+
+        # Trata os casos especiais primeiro
+        if div_type == "nao_encontrado":
             query = base_query_nao_encontrado
-            
+
+        elif div_type == "nao_encontrado_cep_dup":
+            query = base_query_nao_encontrado_lograd_mult_cep
+
         else:
-            query = base_query 
-            query += f" AND ({condition_sql})"
-       
+            # Condições mapeadas
+            conditions = {
+                'logradouro': "lograd_div = 2 and bairro_div != 2 and cep_dup != 2",
+                'bairro': "bairro_div = 2 and lograd_div != 2 and cep_dup != 2",
+                'logradouro_bairro': "lograd_div = 2 and bairro_div = 2 and cep_dup != 2",
+                'cep_dup': "cep_dup = 2 and status != 3"
+            }
+
+            condition_sql = conditions.get(div_type)
+            if condition_sql is None:
+                return []  # tipo não reconhecido
+
+            query = f"{base_query} AND ({condition_sql})"
+
         self.cursor.execute(query)
         columns = [col[0] for col in self.cursor.description]
         return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
+
     
     def expand_complemento(self, value):
         if pd.isna(value):
@@ -363,6 +380,7 @@ class Database:
             # Limpar tabela antes de importar
             self.cursor.execute("DELETE FROM campo")
 
+            # Primeiro, inserir todos os dados
             for row in data:
                 endereco_completo = str(row.get('endereco', '')) if pd.notna(row.get('endereco')) else None
                 bairro = str(row.get('bairro', '')) if pd.notna(row.get('bairro')) else None
@@ -375,8 +393,8 @@ class Database:
                     INSERT INTO campo (
                         latitude, longitude, numero_fachada,
                         tipo_imovel, pavimento, endereco_completo, bairro, cep, pais,
-                        complemento, quantidade, data
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        complemento, quantidade, data, cep_dup
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     str(row.get('Latitude', '')) if pd.notna(row.get('Latitude')) else None,
                     str(row.get('Longitude', '')) if pd.notna(row.get('Longitude')) else None,
@@ -390,7 +408,28 @@ class Database:
                     complemento,
                     str(row.get('Weblink: Quantidade', '')) if pd.notna(row.get('Weblink: Quantidade')) else None,
                     str(row.get('Data', '')) if pd.notna(row.get('Data')) else None,
+                    0  # Inicialmente marcamos todos como 0 (OK)
                 ))
+            
+            # 1. Busca endereços associados a mais de um CEP
+            self.cursor.execute('''
+                SELECT endereco_completo, GROUP_CONCAT(DISTINCT cep)
+                FROM campo
+                WHERE endereco_completo IS NOT NULL AND cep IS NOT NULL
+                GROUP BY endereco_completo
+                HAVING COUNT(DISTINCT cep) > 1
+            ''')
+
+            enderecos_com_ceps_diferentes = [row[0] for row in self.cursor.fetchall()]
+
+            # 2. Atualiza os registros com esses endereços
+            if enderecos_com_ceps_diferentes:
+                placeholders = ','.join(['?'] * len(enderecos_com_ceps_diferentes))
+                self.cursor.execute(f'''
+                    UPDATE campo
+                    SET cep_dup = 2
+                    WHERE endereco_completo IN ({placeholders})
+                ''', enderecos_com_ceps_diferentes)
             
             # Limpar tabela survey
             self.cursor.execute("DELETE FROM survey")
@@ -486,27 +525,28 @@ class Database:
                 status = 3
 
                 cep = (campo_data.get('cep') or '').strip()
+                cep_dup = campo_data.get('cep_dup', 0)
                 roteiro = roteiros_por_cep.get(cep)
 
                 if roteiro:
-                    # Validar CEP
                     cep_roteiro = (roteiro.get('cep') or '').strip()
+                    
                     if cep and cep_roteiro:
                         cep_div = 1 if cep == cep_roteiro else 2
 
                     if cep_div == 1:
+                        # Comparar logradouro
                         logradouro_campo = self.normalize_text(campo_data.get('endereco_completo', ''))
                         logradouro_roteiro = self.normalize_text(roteiro.get('nome_lograd', ''))
-                        if logradouro_campo and logradouro_roteiro:
-                            lograd_div = 1 if logradouro_campo == logradouro_roteiro else 2
+                        lograd_div = 1 if logradouro_campo and logradouro_campo == logradouro_roteiro else 2
 
+                        # Comparar bairro
                         bairro_campo = self.normalize_text(campo_data.get('bairro', ''))
                         bairro_roteiro = self.normalize_text(roteiro.get('bairro', ''))
-                        if bairro_campo and bairro_roteiro:
-                            bairro_div = 1 if bairro_campo == bairro_roteiro else 2
+                        bairro_div = 1 if bairro_campo and bairro_campo == bairro_roteiro else 2
 
                         # Definir status
-                        if lograd_div == 1 and bairro_div == 1:
+                        if lograd_div == 1 and bairro_div == 1 and cep_dup != 2:
                             status = 1
                         else:
                             status = 2
@@ -532,6 +572,7 @@ class Database:
                     'status': status,
                     'lograd_div': lograd_div,
                     'bairro_div': bairro_div,
+                    'cep_dup': campo_data.get('cep_dup', 0),
                     'cep_div': cep_div,
                     'data': campo_data.get('data', datetime.now().strftime('%Y-%m-%d')),
                     'observacoes': 'Importado automático',
@@ -831,8 +872,8 @@ class Database:
                 id_localidade, cod_lograd, tecnico_id, tecnico_nome,
                 empresa_id, empresa_nome, data, observacoes, totalUCs,
                 numPisos, ocupacao, redeInterna, fotoExteriorEdificio,
-                fotoFachadaEdificio, status, lograd_div, bairro_div, cep_div, baixado
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                fotoFachadaEdificio, status, lograd_div, bairro_div, cep_dup, cep_div, baixado
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             survey_data.get('tipo_survey'),
             survey_data.get('versao'),
@@ -876,6 +917,7 @@ class Database:
             survey_data.get('status', 3),  # Default: Divergente
             survey_data.get('lograd_div', 0),  # Default: Divergente
             survey_data.get('bairro_div', 0),  # Default: Divergente
+            survey_data.get('cep_dup', 0),  # Default: Divergente
             survey_data.get('cep_div', 0),  # Default: Divergente
             survey_data.get('baixado', False)
         ))
